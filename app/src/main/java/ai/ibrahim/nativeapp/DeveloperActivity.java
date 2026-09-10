@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -55,6 +56,10 @@ public final class DeveloperActivity extends Activity {
         description.setPadding(0, dp(8), 0, dp(12));
         root.addView(description, matchWrap());
 
+        Button engineButton = button("AI Motoru / API Anahtarı");
+        engineButton.setOnClickListener(v -> showAiEngineSettings());
+        root.addView(engineButton, matchWrap());
+
         requestInput = new EditText(this);
         requestInput.setHint("Örn: Seafight tarzı basit bir deniz savaşı oyunu yap. Joystick ile gemi hareket etsin, düşman gemileri ve can sistemi olsun.");
         requestInput.setTextColor(Color.WHITE);
@@ -64,7 +69,9 @@ public final class DeveloperActivity extends Activity {
         requestInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         requestInput.setMinLines(5);
         requestInput.setMaxLines(10);
-        root.addView(requestInput, matchWrap());
+        LinearLayout.LayoutParams inputParams = matchWrap();
+        inputParams.topMargin = dp(10);
+        root.addView(requestInput, inputParams);
 
         buildButton = button("Oyunu Yap");
         buildButton.setOnClickListener(v -> buildGame());
@@ -97,7 +104,7 @@ public final class DeveloperActivity extends Activity {
         root.addView(statusView, matchWrap());
 
         TextView note = new TextView(this);
-        note.setText("V1 sınırı: İlk sürüm küçük/orta ölçekli tek oyunculu HTML5 oyunlar üretir. Harici görsel ve paket kullanmadan çalışır. Sonraki sürümde GitHub'a proje gönderme, otomatik test ve hata düzeltme döngüsü eklenecek.");
+        note.setText("V17: Google/native eşleştirmesi çalışırsa onu kullanır. Eşleştirme bozuksa AI Motoru bölümünden kişisel API anahtarı ekleyerek Geliştirici Ajanını bağımsız çalıştırabilirsin. Anahtar yalnızca bu telefonda şifreli saklanır.");
         note.setTextColor(Color.rgb(125, 125, 135));
         note.setTextSize(11);
         note.setPadding(0, dp(16), 0, 0);
@@ -109,17 +116,80 @@ public final class DeveloperActivity extends Activity {
         setContentView(scroll);
     }
 
+    private void showAiEngineSettings() {
+        SecretStore secrets = new SecretStore(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(8), dp(20), 0);
+
+        TextView info = new TextView(this);
+        info.setText(secrets.has("openai_api_key")
+                ? "Doğrudan AI motoru hazır. Yeni anahtar girersen eskisinin üzerine yazılır."
+                : "Google eşleştirmesi çalışmadığında Geliştirici Ajanı için doğrudan AI motoru kullanabilirsin.");
+        info.setTextColor(Color.rgb(190, 190, 198));
+        info.setTextSize(12);
+        content.addView(info, matchWrap());
+
+        EditText keyInput = new EditText(this);
+        keyInput.setSingleLine(true);
+        keyInput.setHint(secrets.has("openai_api_key") ? "API anahtarı kayıtlı" : "OpenAI API anahtarı");
+        keyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        content.addView(keyInput, matchWrap());
+
+        Button openKeys = button("API anahtarı sayfasını aç");
+        openKeys.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://platform.openai.com/api-keys")));
+            } catch (Exception ignored) {
+            }
+        });
+        LinearLayout.LayoutParams keyPageParams = matchWrap();
+        keyPageParams.topMargin = dp(6);
+        content.addView(openKeys, keyPageParams);
+
+        Button remove = button("Kayıtlı doğrudan AI anahtarını kaldır");
+        remove.setEnabled(secrets.has("openai_api_key"));
+        remove.setOnClickListener(v -> {
+            secrets.remove("openai_api_key");
+            Toast.makeText(this, "Doğrudan AI anahtarı kaldırıldı.", Toast.LENGTH_SHORT).show();
+            refreshAccountState();
+        });
+        LinearLayout.LayoutParams removeParams = matchWrap();
+        removeParams.topMargin = dp(6);
+        content.addView(remove, removeParams);
+
+        new AlertDialog.Builder(this)
+                .setTitle("AI Motoru")
+                .setMessage("API anahtarını sohbete gönderme. Buraya doğrudan telefonda gir.")
+                .setView(content)
+                .setPositiveButton("Kaydet", (dialog, which) -> {
+                    String key = keyInput.getText().toString().trim();
+                    if (!key.isEmpty()) {
+                        secrets.put("openai_api_key", key);
+                        Toast.makeText(this, "AI motoru kaydedildi.", Toast.LENGTH_SHORT).show();
+                    }
+                    refreshAccountState();
+                })
+                .setNegativeButton("Kapat", null)
+                .show();
+    }
+
     private void refreshAccountState() {
-        boolean paired = new SecretStore(this).has("device_token");
-        buildButton.setEnabled(paired);
-        statusView.setText(paired
-                ? "AI hesabı hazır · oyun üretmeye başlayabilirsin."
-                : "Önce ana İbrahim AI uygulamasını açıp Google hesabını eşleştir. Ardından buraya geri gel.");
+        boolean paired = apiClient != null && apiClient.isPaired();
+        boolean direct = apiClient != null && apiClient.hasDirectAi();
+        buildButton.setEnabled(paired || direct);
+        if (paired) {
+            statusView.setText("İbrahim AI hesabı eşleşti · oyun üretmeye başlayabilirsin.");
+        } else if (direct) {
+            statusView.setText("Doğrudan AI motoru hazır · Google eşleştirmesi gerekmiyor.");
+        } else {
+            statusView.setText("AI motoru bekliyor · Google eşleştirmesini deneyebilir veya yukarıdaki AI Motoru bölümünden API anahtarı ekleyebilirsin.");
+        }
     }
 
     private void buildGame() {
-        if (!new SecretStore(this).has("device_token")) {
-            Toast.makeText(this, "Önce ana İbrahim AI'de hesabını eşleştir.", Toast.LENGTH_LONG).show();
+        if (apiClient == null || !apiClient.hasAnyAiEngine()) {
+            Toast.makeText(this, "Önce AI Motoru bölümünden bağlantı kur.", Toast.LENGTH_LONG).show();
             refreshAccountState();
             return;
         }
