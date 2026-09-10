@@ -1,43 +1,43 @@
 # İbrahim AI Native Android
 
-Bu proje, mevcut İbrahim AI web/backend uygulamasını native Android kabuğuna taşır ve ekran kapalıyken çalışabilen foreground wake-word servisi ekler.
+Bu proje mevcut İbrahim AI web/backend sistemini native Android kabuğunda çalıştırır ve ekran kapalıyken çalışabilen foreground wake-word servisi ekler.
 
-## İçerik
+## Neler var?
 
 - Native Android WebView kabuğu: `https://ibrahim-ai-y1xmj0.v2.appdeploy.ai/`
-- `foregroundServiceType="microphone"` ile kalıcı 7/24 dinleme servisi
+- `foregroundServiceType="microphone"` ile 7/24 wake-word servisi
 - Düşük güç wake-word motoru: Picovoice Porcupine 4.0.2
-- Özel `.ppn` wake-word dosyası desteği
-- Uygulama içinden `Ibrahim` wake-word modeli üretme denemesi (English model)
-- Wake word algılandıktan sonra tek seferlik Türkçe `SpeechRecognizer` komut çözümleme; Android 12+ cihaz-içi tanıyıcı varsa öncelik verilir
-- Native komutların güvenli cihaz tokenı ile İbrahim AI backend'ine gönderilmesi; İbrahim AI sunucusuna ses değil yalnızca tanınmış metin gider
-- Token ve Picovoice AccessKey için Android Keystore AES/GCM şifreleme
+- Varsayılan yedek wake word: `Jarvis`
+- Picovoice Console'dan oluşturulan Android `.ppn` dosyasını içe aktararak `İbrahim` gibi özel wake word kullanma
+- Wake word algılandıktan sonra tek seferlik Türkçe Android `SpeechRecognizer`
+- Tanınan komutun güvenli cihaz tokenı ile İbrahim AI backend'ine gönderilmesi
+- Cihaz tokenı ve Picovoice AccessKey için Android Keystore AES/GCM şifreleme
 - Türkçe Text-to-Speech ile sesli cevap
-- Saat ve pil yüzdesi için internetsiz yerel komutlar
-- Kalıcı foreground bildirimi: duraklat / devam / kapat
-- Telefon yeniden açıldığında Android kısıtları nedeniyle mikrofonu sessizce başlatmak yerine yeniden etkinleştirme bildirimi
+- Saat ve pil yüzdesi gibi bazı komutları internetsiz yerel çalıştırma
+- Foreground bildiriminden duraklat / devam / kapat
+- Telefon yeniden başladığında Android kısıtları nedeniyle kullanıcıya yeniden etkinleştirme bildirimi
 - Pil optimizasyonu ayarına hızlı geçiş
-- GitHub Actions ile debug APK üretme workflow'u
+- GitHub Actions ile otomatik debug APK üretimi
 
 ## İlk kurulum
 
-1. APK'yı kur ve İbrahim AI hesabına giriş yap. Web uygulaması native kabuğu algılar ve cihazı otomatik eşleştirir.
-2. `Native Ayarlar` bölümünü aç.
-3. Picovoice Console'dan aldığın AccessKey'i **uygulamanın içindeki alana** gir. Anahtarı sohbetlere gönderme.
-4. İstersen `“İbrahim” wake-word modelini üret` düğmesini dene. Başarılı olmazsa Picovoice Console'dan Android için oluşturulmuş `.ppn` dosyasını `Hazır .ppn wake-word dosyası seç` ile içe aktar.
-5. `7/24 Başlat` düğmesine bas ve mikrofon iznini ver.
-6. Pil ayarlarında İbrahim AI'ı mümkünse `Kısıtlanmamış` yap.
-
-Özel model yoksa servis geçici wake word olarak `Jarvis` kullanır.
+1. GitHub Actions'ın ürettiği `app-debug.apk` dosyasını telefona kur.
+2. Uygulamayı aç ve İbrahim AI hesabına giriş yap. Native kabuk algılanınca cihaz otomatik eşleşir.
+3. Üstteki `Native Ayarlar` bölümünü aç.
+4. Picovoice Console'dan aldığın AccessKey'i uygulamanın içindeki alana gir. Anahtarı sohbetlere gönderme.
+5. İlk testte özel model olmadan `Jarvis` diyerek uyandırabilirsin.
+6. `İbrahim` wake word kullanmak için Picovoice Console'da Android için özel wake word oluştur, `.ppn` dosyasını indir ve `İbrahim .ppn wake-word dosyasını seç` düğmesiyle içe aktar.
+7. `7/24 Başlat` düğmesine bas ve mikrofon iznini ver.
+8. Android pil ayarlarında İbrahim AI'ı mümkünse `Kısıtlanmamış` yap.
 
 ## Android kısıtı
 
-Android 14+ sürümlerde mikrofon kullanan foreground service uygulama arka plandayken veya BOOT_COMPLETED alıcısından doğrudan başlatılamaz. Bu nedenle ilk başlatma görünür Activity içinden yapılır. Telefon yeniden açılırsa uygulama bir bildirim gösterir; kullanıcı bildirime dokunup servisi tekrar başlatır. Servis başladıktan sonra uygulama ekranda değilken ve ekran kapalıyken çalışmaya devam edebilir, ancak üretici pil yönetimi / kullanıcı tarafından zorla durdurma / sistem kaynak baskısı nedeniyle hiçbir üçüncü taraf Android uygulaması mutlak %100 kesintisiz çalışma garantisi veremez.
-
-## APK oluşturma
-
-Projeyi GitHub'a koyarsan `.github/workflows/build-apk.yml` otomatik olarak `app-debug.apk` üretir. Android Studio ile de projeyi açıp Run veya Build APK kullanabilirsin.
+Android 14+ sürümlerde mikrofon kullanan foreground service uygulama arka plandayken veya `BOOT_COMPLETED` alıcısından doğrudan başlatılamaz. İlk başlatma görünür Activity içinden yapılır. Telefon yeniden açılırsa uygulama bir bildirim gösterir; kullanıcı bildirime dokunup servisi tekrar başlatır. Servis başladıktan sonra uygulama ekranda değilken ve ekran kapalıyken çalışabilir. Üretici pil yönetimi, kullanıcı tarafından zorla durdurma veya sistem kaynak baskısı nedeniyle üçüncü taraf Android uygulamalarında mutlak %100 kesintisiz çalışma garantisi yoktur.
 
 ## Ses gizliliği
 
-Porcupine wake-word dinleme telefonda yerel çalışır. Wake word algılandıktan sonra komut çözümlemede Android 12+ cihaz-içi `SpeechRecognizer` varsa o tercih edilir; cihaz-içi model yoksa Android sistem tanıyıcısı sağlayıcısına göre ses tanıma için ağ kullanabilir. İbrahim AI backend'ine gönderilen veri tanınmış komut metnidir.
+Porcupine wake-word dinleme telefonda yerel çalışır. Wake word algılandıktan sonra Android 12+ cihaz-içi `SpeechRecognizer` varsa o tercih edilir; yoksa Android sistem ses tanıyıcısı sağlayıcısına göre ağ kullanabilir. İbrahim AI backend'ine wake-word sesi değil, yalnızca tanınmış komut metni gönderilir.
+
+## APK
+
+`.github/workflows/build-apk.yml`, `main` dalına gönderilen her güncellemede `app-debug.apk` üretir ve `IbrahimAI-Native-debug-apk` adlı artifact olarak saklar.

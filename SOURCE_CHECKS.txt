@@ -1,0 +1,14 @@
+İbrahim AI Native Android source checks
+
+- XML files parsed successfully.
+- Java source brace/parenthesis counts balanced.
+- Android SSL callback uses android.net.http.SslError.
+- No APP_TITLE / APP_CONTENT / TODO scaffold placeholders remain.
+- Foreground service declares microphone service type.
+- Native device token and Picovoice AccessKey are encrypted with Android Keystore AES/GCM on device.
+- Backend stores only SHA-256 hash of native device secret.
+- Wake-word audio is processed locally by Porcupine; recognized command text is sent to Ibrahim AI backend.
+- Android SpeechRecognizer is started only after wake-word detection, not used as the 24/7 listener.
+- BOOT_COMPLETED does not silently start a microphone foreground service; it posts a user-action restart notification.
+
+Build note: this environment does not include Android SDK/Gradle dependencies and cannot resolve Maven hosts, so the APK binary is intentionally not claimed as locally compiled. The included GitHub Actions workflow builds app-debug.apk in a normal Android build environment.
