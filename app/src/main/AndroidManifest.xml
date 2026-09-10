@@ -17,7 +17,7 @@
     <application
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
-        android:label="İbrahim AI Dev"
+        android:label="İbrahim AI Lab"
         android:icon="@drawable/ic_ibrahim"
         android:theme="@style/Theme.IbrahimAI">
 
@@ -25,7 +25,7 @@
             android:name="ai.ibrahim.nativeapp.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:label="İbrahim AI Dev">
+            android:label="İbrahim AI Lab">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -41,7 +41,7 @@
         <activity
             android:name="ai.ibrahim.nativeapp.DeveloperActivity"
             android:exported="true"
-            android:label="İbrahim AI Dev · Oyun Yap">
+            android:label="İbrahim AI Lab · Oyun Yap">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
