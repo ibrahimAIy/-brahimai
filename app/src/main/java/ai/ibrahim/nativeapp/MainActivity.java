@@ -3,24 +3,24 @@ package ai.ibrahim.nativeapp;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
+import android.util.Base64;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
-import android.webkit.JsResult;
 import android.webkit.SslErrorHandler;
-import android.net.http.SslError;
-import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -35,28 +35,37 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.security.SecureRandom;
 
 public final class MainActivity extends Activity {
     private static final String APP_URL = "https://ibrahim-ai-y1xmj0.v2.appdeploy.ai/";
     private static final int REQUEST_AUDIO = 2101;
     private static final int REQUEST_NOTIFICATIONS = 2102;
     private static final int REQUEST_PPN = 2103;
+    private static final long PAIR_TTL_MS = 10 * 60 * 1000L;
 
     private WebView webView;
     private TextView statusView;
     private Button startButton;
     private Button stopButton;
-    private final SharedPreferences.OnSharedPreferenceChangeListener listener = (preferences, key) -> runOnUiThread(this::refreshNativeStatus);
+    private NativeApiClient apiClient;
+    private Handler pairingHandler;
+    private boolean pairingCheckInFlight;
+
+    private final SharedPreferences.OnSharedPreferenceChangeListener listener =
+            (preferences, key) -> runOnUiThread(this::refreshNativeStatus);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        apiClient = new NativeApiClient(this);
+        pairingHandler = new Handler(Looper.getMainLooper());
         NotificationHelper.createChannels(this);
         getSharedPreferences("native_prefs", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(listener);
         buildUi();
         configureWebView();
-        requestNotificationPermissionIfNeeded();
         webView.loadUrl(APP_URL);
+
         if (getIntent() != null && getIntent().getBooleanExtra("restart_wake_word", false)) {
             Toast.makeText(this, "Telefon yeniden başladı. Android kuralı nedeniyle 7/24 dinlemeyi bir kez yeniden başlat.", Toast.LENGTH_LONG).show();
         }
@@ -116,51 +125,17 @@ public final class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setSupportMultipleWindows(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setSupportMultipleWindows(false);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " IbrahimAINative/13.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " IbrahimAINative/14.0");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.addJavascriptInterface(new NativeBridge(this), "IbrahimNative");
         webView.setWebViewClient(new TrustedClient());
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
-                Dialog dialog = new Dialog(MainActivity.this);
-                WebView child = new WebView(MainActivity.this);
-                WebSettings childSettings = child.getSettings();
-                childSettings.setJavaScriptEnabled(true);
-                childSettings.setDomStorageEnabled(true);
-                childSettings.setSupportMultipleWindows(true);
-                childSettings.setJavaScriptCanOpenWindowsAutomatically(true);
-                CookieManager.getInstance().setAcceptThirdPartyCookies(child, true);
-                child.setWebViewClient(new WebViewClient());
-                child.setWebChromeClient(new WebChromeClient() {
-                    @Override public void onCloseWindow(WebView window) {
-                        dialog.dismiss();
-                        window.destroy();
-                    }
-                });
-                dialog.setContentView(child);
-                dialog.setOnDismissListener(d -> child.destroy());
-                dialog.show();
-                if (dialog.getWindow() != null) dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
-                transport.setWebView(child);
-                resultMsg.sendToTarget();
-                return true;
-            }
-
-            @Override
-            public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
-                new AlertDialog.Builder(MainActivity.this).setMessage(message).setPositiveButton("Tamam", (d, w) -> result.confirm()).setOnCancelListener(d -> result.cancel()).show();
-                return true;
-            }
-        });
     }
 
     private final class TrustedClient extends WebViewClient {
@@ -169,23 +144,126 @@ public final class MainActivity extends Activity {
             Uri uri = request.getUrl();
             String host = uri.getHost();
             if (host != null && (host.equals("ibrahim-ai-y1xmj0.v2.appdeploy.ai") || host.endsWith(".appdeploy.ai"))) return false;
-            try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (ActivityNotFoundException ignored) { }
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            } catch (ActivityNotFoundException ignored) {
+            }
             return true;
         }
 
-        @Override public void onPageFinished(WebView view, String url) {
+        @Override
+        public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
             refreshNativeStatus();
         }
 
-        @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+        @Override
+        public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
             handler.cancel();
             Toast.makeText(MainActivity.this, "Güvenli bağlantı doğrulanamadı.", Toast.LENGTH_LONG).show();
         }
     }
 
+    public void startBrowserPairing() {
+        SecretStore secrets = new SecretStore(this);
+        if (secrets.has("device_token")) {
+            Toast.makeText(this, "Bu cihaz zaten İbrahim AI hesabınla eşleşmiş.", Toast.LENGTH_SHORT).show();
+            refreshNativeStatus();
+            return;
+        }
+
+        byte[] random = new byte[32];
+        new SecureRandom().nextBytes(random);
+        String pairSecret = Base64.encodeToString(random, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+        getSharedPreferences("native_prefs", MODE_PRIVATE)
+                .edit()
+                .putString("pending_pair_secret", pairSecret)
+                .putLong("pending_pair_started_at", System.currentTimeMillis())
+                .apply();
+
+        Uri pairingUrl = Uri.parse(APP_URL).buildUpon().appendQueryParameter("native_pair", pairSecret).build();
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, pairingUrl));
+            Toast.makeText(this, "Google girişini Chrome'da tamamla. Sonra uygulama otomatik eşleşecek.", Toast.LENGTH_LONG).show();
+        } catch (ActivityNotFoundException exception) {
+            Toast.makeText(this, "Tarayıcı açılamadı.", Toast.LENGTH_LONG).show();
+        }
+        refreshNativeStatus();
+    }
+
+    public void openBrowserApp() {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(APP_URL)));
+        } catch (ActivityNotFoundException exception) {
+            Toast.makeText(this, "Tarayıcı açılamadı.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void checkPendingPairing() {
+        if (apiClient == null || pairingCheckInFlight) return;
+        SecretStore secrets = new SecretStore(this);
+        SharedPreferences prefs = getSharedPreferences("native_prefs", MODE_PRIVATE);
+        if (secrets.has("device_token")) {
+            clearPendingPairing();
+            refreshNativeStatus();
+            return;
+        }
+
+        String pairSecret = prefs.getString("pending_pair_secret", "");
+        long startedAt = prefs.getLong("pending_pair_started_at", 0L);
+        if (pairSecret == null || pairSecret.isEmpty()) return;
+        if (startedAt <= 0L || System.currentTimeMillis() - startedAt > PAIR_TTL_MS) {
+            clearPendingPairing();
+            Toast.makeText(this, "Hesap eşleştirme süresi doldu. Yeniden deneyebilirsin.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        pairingCheckInFlight = true;
+        updateNativeStatus("Hesap eşleştirmesi kontrol ediliyor…");
+        apiClient.pollPairing(pairSecret, new NativeApiClient.PairingCallback() {
+            @Override
+            public void onPaired(String token, String deviceId) {
+                pairingCheckInFlight = false;
+                SecretStore store = new SecretStore(MainActivity.this);
+                store.put("device_token", token);
+                store.put("device_id", deviceId);
+                clearPendingPairing();
+                Toast.makeText(MainActivity.this, "Google hesabın İbrahim AI ile eşleşti.", Toast.LENGTH_LONG).show();
+                refreshNativeStatus();
+                if (webView != null) webView.reload();
+            }
+
+            @Override
+            public void onPending() {
+                pairingCheckInFlight = false;
+                refreshNativeStatus();
+                pairingHandler.postDelayed(MainActivity.this::checkPendingPairing, 1500L);
+            }
+
+            @Override
+            public void onError(String message) {
+                pairingCheckInFlight = false;
+                if (message.contains("süresi doldu")) clearPendingPairing();
+                updateNativeStatus(message);
+            }
+        });
+    }
+
+    private void clearPendingPairing() {
+        getSharedPreferences("native_prefs", MODE_PRIVATE)
+                .edit()
+                .remove("pending_pair_secret")
+                .remove("pending_pair_started_at")
+                .apply();
+    }
+
     private void startWakeListening() {
         SecretStore secrets = new SecretStore(this);
+        if (!secrets.has("device_token")) {
+            Toast.makeText(this, "Önce Google hesabını native uygulamayla eşleştirelim.", Toast.LENGTH_LONG).show();
+            startBrowserPairing();
+            return;
+        }
         if (!secrets.has("picovoice_access_key")) {
             Toast.makeText(this, "Önce Native Ayarlar'dan Picovoice AccessKey gir.", Toast.LENGTH_LONG).show();
             showNativeSettings();
@@ -195,9 +273,19 @@ public final class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_AUDIO);
             return;
         }
+
+        SharedPreferences prefs = getSharedPreferences("native_prefs", MODE_PRIVATE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                && !prefs.getBoolean("notification_permission_prompted", false)) {
+            prefs.edit().putBoolean("notification_permission_prompted", true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+            return;
+        }
+
         Intent service = new Intent(this, WakeWordService.class).setAction(WakeWordService.ACTION_START);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service); else startService(service);
-        getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("desired_enabled", true).apply();
+        prefs.edit().putBoolean("desired_enabled", true).apply();
         refreshNativeStatus();
     }
 
@@ -208,16 +296,14 @@ public final class MainActivity extends Activity {
         refreshNativeStatus();
     }
 
-    private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
-        }
-    }
-
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_AUDIO && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startWakeListening();
+        if (requestCode == REQUEST_AUDIO && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startWakeListening();
+        } else if (requestCode == REQUEST_NOTIFICATIONS) {
+            startWakeListening();
+        }
     }
 
     private void showNativeSettings() {
@@ -227,7 +313,21 @@ public final class MainActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(22), dp(8), dp(22), 0);
 
+        TextView accountLabel = label(secrets.has("device_token")
+                ? "Hesap: eşleşti · 7/24 komutlar aynı İbrahim AI hesabını kullanır"
+                : "Hesap: eşleşmedi · Google girişi normal tarayıcıda yapılır");
+        content.addView(accountLabel, matchWrap());
+
+        Button accountButton = smallButton(secrets.has("device_token") ? "Özel alanımı tarayıcıda aç" : "Google hesabımı bağla");
+        accountButton.setOnClickListener(v -> {
+            if (new SecretStore(this).has("device_token")) openBrowserApp(); else startBrowserPairing();
+        });
+        LinearLayout.LayoutParams accountParams = matchWrap();
+        accountParams.topMargin = dp(6);
+        content.addView(accountButton, accountParams);
+
         TextView keyLabel = label("Picovoice AccessKey (yalnızca bu telefonda şifreli saklanır)");
+        keyLabel.setPadding(0, dp(14), 0, 0);
         content.addView(keyLabel, matchWrap());
         EditText keyInput = new EditText(this);
         keyInput.setSingleLine(true);
@@ -253,7 +353,10 @@ public final class MainActivity extends Activity {
 
         Button console = smallButton("Picovoice Console'u aç");
         console.setOnClickListener(v -> {
-            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://console.picovoice.ai/"))); } catch (Exception ignored) { }
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://console.picovoice.ai/")));
+            } catch (Exception ignored) {
+            }
         });
         LinearLayout.LayoutParams consoleParams = matchWrap();
         consoleParams.topMargin = dp(6);
@@ -268,7 +371,7 @@ public final class MainActivity extends Activity {
         clearParams.topMargin = dp(6);
         content.addView(clear, clearParams);
 
-        TextView privacy = label("Wake word yerel çalışır. İbrahim AI sunucusuna wake-word sesi değil, yalnızca wake word sonrası tanınan komut metni gönderilir.");
+        TextView privacy = label("Wake word yerel çalışır. Sunucuya wake-word sesi değil, yalnızca wake word sonrası tanınan komut metni gönderilir.");
         privacy.setPadding(0, dp(12), 0, 0);
         content.addView(privacy, matchWrap());
 
@@ -323,8 +426,11 @@ public final class MainActivity extends Activity {
     }
 
     private void openBatterySettings() {
-        try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
-        catch (Exception exception) { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
+        try {
+            startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+        } catch (Exception exception) {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+        }
     }
 
     public void updateNativeStatus(String text) {
@@ -338,7 +444,10 @@ public final class MainActivity extends Activity {
         SecretStore secrets = new SecretStore(this);
         String path = prefs.getString("custom_keyword_path", "");
         String wake = path != null && !path.isEmpty() && new File(path).isFile() ? "İbrahim" : "Jarvis";
-        updateNativeStatus((enabled ? "7/24 açık" : "7/24 kapalı") + " · wake: " + wake + " · " + (secrets.has("picovoice_access_key") ? "motor hazır" : "AccessKey gerekli") + " · " + (secrets.has("device_token") ? "AI eşleşti" : "AI eşleşmesi bekliyor"));
+        boolean pairing = !secrets.has("device_token") && !prefs.getString("pending_pair_secret", "").isEmpty();
+        String accountState = secrets.has("device_token") ? "AI eşleşti" : pairing ? "Google eşleştirmesi sürüyor" : "AI eşleşmesi bekliyor";
+        updateNativeStatus((enabled ? "7/24 açık" : "7/24 kapalı") + " · wake: " + wake + " · "
+                + (secrets.has("picovoice_access_key") ? "motor hazır" : "AccessKey gerekli") + " · " + accountState);
     }
 
     private void updateButtons() {
@@ -347,13 +456,28 @@ public final class MainActivity extends Activity {
         if (stopButton != null) stopButton.setEnabled(enabled);
     }
 
-    @Override protected void onResume() {
-        super.onResume();
-        refreshNativeStatus();
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        Uri data = intent != null ? intent.getData() : null;
+        if (data != null && "ibrahimai".equals(data.getScheme()) && "paired".equals(data.getHost())) {
+            pairingHandler.postDelayed(this::checkPendingPairing, 250L);
+        }
     }
 
-    @Override protected void onDestroy() {
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshNativeStatus();
+        pairingHandler.postDelayed(this::checkPendingPairing, 300L);
+    }
+
+    @Override
+    protected void onDestroy() {
         getSharedPreferences("native_prefs", MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(listener);
+        if (pairingHandler != null) pairingHandler.removeCallbacksAndMessages(null);
+        if (apiClient != null) apiClient.shutdown();
         if (webView != null) {
             webView.removeJavascriptInterface("IbrahimNative");
             webView.destroy();
@@ -361,7 +485,8 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    @Override public void onBackPressed() {
+    @Override
+    public void onBackPressed() {
         if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed();
     }
 
@@ -384,8 +509,14 @@ public final class MainActivity extends Activity {
         return button;
     }
 
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
-    private LinearLayout.LayoutParams matchWrap() { return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); }
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private LinearLayout.LayoutParams matchWrap() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
     private LinearLayout.LayoutParams weightButton(int left) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(38), 1f);
         params.leftMargin = left;
