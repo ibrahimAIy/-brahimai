@@ -12,18 +12,28 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class NativeApiClient {
-    private static final String COMMAND_URL = "https://ibrahim-ai-y1xmj0.v2.appdeploy.ai/api/native/command";
+    private static final String BASE_URL = "https://ibrahim-ai-y1xmj0.v2.appdeploy.ai";
+    private static final String COMMAND_URL = BASE_URL + "/api/native/command";
+    private static final String PAIR_RESULT_URL = BASE_URL + "/api/native/pair/result";
+
     private final SecretStore secrets;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
 
     public interface Callback {
         void onSuccess(String response);
+        void onError(String message);
+    }
+
+    public interface PairingCallback {
+        void onPaired(String token, String deviceId);
+        void onPending();
         void onError(String message);
     }
 
@@ -35,10 +45,44 @@ public final class NativeApiClient {
         return secrets.has("device_token");
     }
 
+    public void pollPairing(String pairSecret, PairingCallback callback) {
+        executor.execute(() -> {
+            HttpURLConnection connection = null;
+            try {
+                String encoded = URLEncoder.encode(pairSecret, StandardCharsets.UTF_8.name());
+                connection = (HttpURLConnection) new URL(PAIR_RESULT_URL + "?pairSecret=" + encoded).openConnection();
+                connection.setConnectTimeout(12000);
+                connection.setReadTimeout(20000);
+                connection.setRequestMethod("GET");
+                connection.setRequestProperty("Accept", "application/json");
+                int code = connection.getResponseCode();
+                InputStream stream = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
+                String body = readAll(stream);
+                if (code == 200) {
+                    JSONObject json = new JSONObject(body);
+                    String token = json.optString("token", "");
+                    String deviceId = json.optString("deviceId", "");
+                    if (token.length() < 30 || deviceId.isEmpty()) throw new IllegalStateException("Invalid pair result");
+                    main.post(() -> callback.onPaired(token, deviceId));
+                } else if (code == 202) {
+                    main.post(callback::onPending);
+                } else if (code == 410) {
+                    main.post(() -> callback.onError("Eşleştirme süresi doldu. Hesabı yeniden bağla."));
+                } else {
+                    main.post(() -> callback.onError("Eşleştirme kontrolü başarısız. Kod: " + code));
+                }
+            } catch (Exception exception) {
+                main.post(() -> callback.onError("Eşleştirme sunucusuna ulaşılamadı. İnterneti kontrol et."));
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        });
+    }
+
     public void sendCommand(String command, Callback callback) {
         final String token = secrets.get("device_token");
         if (token.isEmpty()) {
-            callback.onError("Cihaz eşleşmesi yok. İbrahim AI uygulamasını açıp hesabına bir kez giriş yap.");
+            callback.onError("Cihaz eşleşmesi yok. İbrahim AI uygulamasını açıp hesabını bağla.");
             return;
         }
         executor.execute(() -> {
@@ -68,7 +112,7 @@ public final class NativeApiClient {
                 } else if (code == 401) {
                     secrets.remove("device_token");
                     secrets.remove("device_id");
-                    main.post(() -> callback.onError("Native eşleşmenin süresi doldu. Uygulamayı açıp tekrar giriş yap."));
+                    main.post(() -> callback.onError("Native eşleşmenin süresi doldu. Uygulamayı açıp hesabını yeniden bağla."));
                 } else {
                     main.post(() -> callback.onError("İbrahim AI sunucusu şu anda yanıt veremedi. Kod: " + code));
                 }
