@@ -37,6 +37,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".DeveloperActivity"
+            android:exported="true"
+            android:label="İbrahim AI · Oyun Yap">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".WakeWordService"
             android:exported="false"
