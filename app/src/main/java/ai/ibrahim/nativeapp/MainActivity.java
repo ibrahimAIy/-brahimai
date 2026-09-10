@@ -113,6 +113,13 @@ public final class MainActivity extends Activity {
         batteryParams.leftMargin = dp(5);
         row.addView(batteryButton, batteryParams);
         nativeBar.addView(row, matchWrap());
+
+        Button quickAskButton = smallButton("AI'ye Sor · Native Hızlı Komut");
+        quickAskButton.setOnClickListener(v -> showQuickAsk());
+        LinearLayout.LayoutParams quickAskParams = matchWrap();
+        quickAskParams.topMargin = dp(5);
+        nativeBar.addView(quickAskButton, quickAskParams);
+
         root.addView(nativeBar, matchWrap());
 
         webView = new WebView(this);
@@ -197,6 +204,62 @@ public final class MainActivity extends Activity {
         } catch (ActivityNotFoundException exception) {
             Toast.makeText(this, "Tarayıcı açılamadı.", Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void showQuickAsk() {
+        SecretStore secrets = new SecretStore(this);
+        if (!secrets.has("device_token")) {
+            Toast.makeText(this, "Önce Google hesabını İbrahim AI ile eşleştirelim.", Toast.LENGTH_LONG).show();
+            startBrowserPairing();
+            return;
+        }
+
+        EditText input = new EditText(this);
+        input.setHint("Örn: Bugünkü planımı düzenle veya ASELS'i araştır");
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setMinLines(3);
+        input.setMaxLines(7);
+        input.setPadding(dp(18), dp(10), dp(18), dp(10));
+
+        new AlertDialog.Builder(this)
+                .setTitle("İbrahim AI'ye Sor")
+                .setMessage("Bu komut doğrudan hesabına bağlı AI motoruna gider; WebView'de tekrar giriş yapman gerekmez.")
+                .setView(input)
+                .setPositiveButton("Gönder", (dialog, which) -> sendNativeQuestion(input.getText().toString()))
+                .setNegativeButton("Kapat", null)
+                .show();
+    }
+
+    private void sendNativeQuestion(String question) {
+        String clean = question == null ? "" : question.trim();
+        if (clean.isEmpty()) {
+            Toast.makeText(this, "Önce bir soru veya komut yaz.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (apiClient == null) {
+            Toast.makeText(this, "AI bağlantısı hazırlanamadı. Uygulamayı yeniden aç.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        updateNativeStatus("İbrahim AI düşünüyor…");
+        apiClient.sendCommand(clean, new NativeApiClient.Callback() {
+            @Override
+            public void onSuccess(String response) {
+                refreshNativeStatus();
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("İbrahim AI")
+                        .setMessage(response)
+                        .setPositiveButton("Tamam", null)
+                        .setNeutralButton("Tekrar sor", (dialog, which) -> showQuickAsk())
+                        .show();
+            }
+
+            @Override
+            public void onError(String message) {
+                refreshNativeStatus();
+                Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void checkPendingPairing() {
