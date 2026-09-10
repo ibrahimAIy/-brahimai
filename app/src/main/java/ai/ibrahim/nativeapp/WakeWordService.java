@@ -164,7 +164,7 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
     }
 
     private void handleCommand(String text) {
-        String normalized = text.toLocaleLowerCase(new Locale("tr", "TR"));
+        String normalized = text.toLowerCase(new Locale("tr", "TR"));
         updateForeground("Komut: " + compact(text, 80), false);
         if (normalized.contains("dinlemeyi kapat") || normalized.contains("dinlemeyi durdur") || normalized.contains("7 24 kapat")) {
             speak("7 24 dinlemeyi kapatıyorum", "stop_answer");
