@@ -25,6 +25,16 @@ public final class NativeBridge {
     }
 
     @JavascriptInterface
+    public void startBrowserPairing() {
+        activity.runOnUiThread(activity::startBrowserPairing);
+    }
+
+    @JavascriptInterface
+    public void openBrowserApp() {
+        activity.runOnUiThread(activity::openBrowserApp);
+    }
+
+    @JavascriptInterface
     public void setWebReady() {
         activity.runOnUiThread(activity::refreshNativeStatus);
     }
