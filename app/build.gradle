@@ -7,11 +7,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'ai.ibrahim.nativeapp.dev'
+        applicationId 'com.ibrahimai.agentfresh'
         minSdk 26
         targetSdk 35
-        versionCode 17
-        versionName '17.0-direct-ai-fallback'
+        versionCode 18
+        versionName '18.0-fresh-package'
     }
 
     compileOptions {
