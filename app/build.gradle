@@ -10,8 +10,8 @@ android {
         applicationId 'com.ibrahimai.agentfresh'
         minSdk 26
         targetSdk 35
-        versionCode 18
-        versionName '18.0-fresh-package'
+        versionCode 19
+        versionName '19.0-adaptive-fresh-chat'
     }
 
     compileOptions {
