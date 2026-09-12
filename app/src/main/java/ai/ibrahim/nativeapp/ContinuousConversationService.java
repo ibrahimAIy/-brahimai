@@ -28,7 +28,7 @@ public final class ContinuousConversationService extends Service implements Text
     private static final String PROFILE_ARAS = "aras";
 
     private final Handler main = new Handler(Looper.getMainLooper());
-    private ContinuousConversationRecorder recorder;
+    private VoiceAudioEngine audioEngine;
     private NativeTranscriptionClient transcriptionClient;
     private NativeApiClient apiClient;
     private TextToSpeech tts;
@@ -41,7 +41,7 @@ public final class ContinuousConversationService extends Service implements Text
     public void onCreate() {
         super.onCreate();
         NotificationHelper.createChannels(this);
-        recorder = new ContinuousConversationRecorder();
+        audioEngine = VoiceAudioEngine.get();
         transcriptionClient = new NativeTranscriptionClient(this);
         apiClient = new NativeApiClient(this);
         tts = new TextToSpeech(this, this);
@@ -62,14 +62,14 @@ public final class ContinuousConversationService extends Service implements Text
         startForegroundNow("Canlı ses hazırlanıyor");
 
         if (ACTION_STOP.equals(action)) {
-            stopConversation(true);
+            stopConversation();
             return START_NOT_STICKY;
         }
 
         if (ACTION_SET_VOICE.equals(action)) {
             String requested = intent == null ? "" : intent.getStringExtra(EXTRA_VOICE_PROFILE);
             setVoiceProfile(requested);
-            updateForeground("Canlı ses · " + voiceDisplayName() + " · mikrofon sürekli açık");
+            updateForeground("Canlı ses · " + voiceDisplayName() + " · mikrofon tek oturum");
             return START_STICKY;
         }
 
@@ -77,22 +77,22 @@ public final class ContinuousConversationService extends Service implements Text
         busy = false;
         destroyed = false;
         if (ttsReady) applyVoiceProfile();
-        startContinuousMicrophone();
-        updateForeground("Canlı ses · " + voiceDisplayName() + " · mikrofon sürekli açık");
+        attachPersistentMicrophone();
+        updateForeground("Canlı ses · " + voiceDisplayName() + " · mikrofon tek oturum");
         return START_STICKY;
     }
 
-    private void startContinuousMicrophone() {
-        if (recorder == null) return;
-        recorder.start(new ContinuousConversationRecorder.Callback() {
+    private void attachPersistentMicrophone() {
+        if (audioEngine == null) return;
+        audioEngine.attach(new ContinuousConversationRecorder.Callback() {
             @Override public void onSpeechStart() {
                 main.post(() -> {
                     if (!assistantSpeaking) return;
                     try { if (tts != null) tts.stop(); } catch (Exception ignored) { }
                     assistantSpeaking = false;
-                    recorder.setAssistantSpeaking(false);
+                    audioEngine.setAssistantSpeaking(false);
                     busy = false;
-                    updateForeground("Seni dinliyorum · mikrofon sürekli açık");
+                    updateForeground("Seni dinliyorum · mikrofon açık kalıyor");
                 });
             }
 
@@ -107,15 +107,17 @@ public final class ContinuousConversationService extends Service implements Text
                 });
             }
         });
-        recorder.setCaptureEnabled(true);
+        audioEngine.setCaptureEnabled(true);
     }
 
     private void processUtterance(byte[] wavAudio) {
         if (destroyed || busy || !isConversationMode()) return;
         busy = true;
-        recorder.setCaptureEnabled(false);
-        recorder.setAssistantSpeaking(false);
-        updateForeground("Duydum · çözümlüyorum");
+        // Hardware microphone remains recording. We only ignore frames in software while this
+        // utterance is being transcribed and answered.
+        audioEngine.setCaptureEnabled(false);
+        audioEngine.setAssistantSpeaking(false);
+        updateForeground("Duydum · mikrofon hâlâ açık · çözümlüyorum");
 
         transcriptionClient.transcribeWav(wavAudio, new NativeTranscriptionClient.Callback() {
             @Override public void onSuccess(String text) {
@@ -130,7 +132,7 @@ public final class ContinuousConversationService extends Service implements Text
                     speakAndStop("Canlı sohbeti kapattım.");
                     return;
                 }
-                updateForeground("NOXARA düşünüyor…");
+                updateForeground("NOXARA düşünüyor · mikrofon hâlâ açık");
                 apiClient.sendCommand(spoken, new NativeApiClient.Callback() {
                     @Override public void onSuccess(String response) {
                         busy = false;
@@ -165,30 +167,30 @@ public final class ContinuousConversationService extends Service implements Text
             return;
         }
         assistantSpeaking = true;
-        recorder.setCaptureEnabled(true);
-        recorder.setAssistantSpeaking(true);
-        updateForeground("Konuşuyorum · sözümü kesebilirsin");
+        audioEngine.setCaptureEnabled(true);
+        audioEngine.setAssistantSpeaking(true);
+        updateForeground("Konuşuyorum · mikrofon açık · sözümü kesebilirsin");
         tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "continuous_answer");
     }
 
     private void speakAndStop(String text) {
         getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", false).apply();
         if (!ttsReady || tts == null) {
-            stopConversation(true);
+            stopConversation();
             return;
         }
         busy = true;
         assistantSpeaking = true;
-        recorder.setCaptureEnabled(false);
+        audioEngine.setCaptureEnabled(false);
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "continuous_answer");
-        main.postDelayed(() -> stopConversation(true), 1300);
+        main.postDelayed(this::stopConversation, 1300);
     }
 
     private void finishAssistantSpeech() {
         if (destroyed) return;
         assistantSpeaking = false;
         busy = false;
-        if (recorder != null) recorder.setAssistantSpeaking(false);
+        if (audioEngine != null) audioEngine.setAssistantSpeaking(false);
         if (!isConversationMode()) return;
         resumeListening();
     }
@@ -197,9 +199,9 @@ public final class ContinuousConversationService extends Service implements Text
         if (destroyed || !isConversationMode()) return;
         busy = false;
         assistantSpeaking = false;
-        recorder.setAssistantSpeaking(false);
-        recorder.setCaptureEnabled(true);
-        updateForeground("Seni dinliyorum · mikrofon sürekli açık");
+        audioEngine.setAssistantSpeaking(false);
+        audioEngine.setCaptureEnabled(true);
+        updateForeground("Seni dinliyorum · mikrofon tek oturumda açık");
     }
 
     @Override
@@ -321,29 +323,37 @@ public final class ContinuousConversationService extends Service implements Text
         getSystemService(NotificationManager.class).notify(FOREGROUND_ID, notification);
     }
 
-    private void stopConversation(boolean resumeWakeWord) {
+    private void stopConversation() {
         if (destroyed) return;
         destroyed = true;
         getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", false).apply();
-        if (recorder != null) recorder.stop();
+        if (audioEngine != null) audioEngine.stopExplicitly();
+        shutdownServiceResources();
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        stopSelf();
+    }
+
+    private void shutdownServiceResources() {
         if (transcriptionClient != null) transcriptionClient.shutdown();
         if (apiClient != null) apiClient.shutdown();
         if (tts != null) {
             try { tts.stop(); } catch (Exception ignored) { }
             tts.shutdown();
         }
-        stopForeground(STOP_FOREGROUND_REMOVE);
-        stopSelf();
-        if (resumeWakeWord && getSharedPreferences("native_prefs", MODE_PRIVATE).getBoolean("desired_enabled", false)) {
-            Intent resume = new Intent(this, WakeWordService.class).setAction(WakeWordService.ACTION_RESUME);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(resume);
-            else startService(resume);
-        }
     }
 
     @Override
     public void onDestroy() {
-        if (!destroyed) stopConversation(false);
+        if (!destroyed) {
+            // Service recreation is not a user request to close the microphone. Detach the service
+            // callback but leave the process-wide AudioRecord alive so START_STICKY can reattach
+            // without another microphone open/close event.
+            if (audioEngine != null) {
+                if (isConversationMode()) audioEngine.detach();
+                else audioEngine.stopExplicitly();
+            }
+            shutdownServiceResources();
+        }
         super.onDestroy();
     }
 
