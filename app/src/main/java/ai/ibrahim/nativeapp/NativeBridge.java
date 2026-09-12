@@ -34,7 +34,7 @@ public final class NativeBridge {
         if (token == null || deviceId == null || token.length() < 30 || deviceId.isEmpty()) return;
         secretStore.put("device_token", token);
         secretStore.put("device_id", deviceId);
-        activity.runOnUiThread(() -> activity.updateNativeStatus("Native cihaz eşleşti · 7/24 motor hazır"));
+        activity.runOnUiThread(() -> activity.updateNativeStatus("Native cihaz eşleşti · canlı ses hazır"));
     }
 
     @JavascriptInterface
@@ -59,12 +59,7 @@ public final class NativeBridge {
 
     @JavascriptInterface
     public void startConversationMode() {
-        activity.runOnUiThread(() -> {
-            // One microphone owner only. Kill the legacy wake/SpeechRecognizer service instead of
-            // merely pausing it so Android cannot revive a second RECORD_AUDIO session mid-chat.
-            activity.stopService(new Intent(activity, WakeWordService.class));
-            sendConversationServiceAction(ContinuousConversationService.ACTION_START, null);
-        });
+        activity.runOnUiThread(() -> sendConversationServiceAction(ContinuousConversationService.ACTION_START, null));
     }
 
     @JavascriptInterface
