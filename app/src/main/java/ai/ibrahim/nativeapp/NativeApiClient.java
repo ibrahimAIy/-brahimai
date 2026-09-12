@@ -15,6 +15,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -147,6 +151,7 @@ public final class NativeApiClient {
                 connection.setDoOutput(true);
                 JSONObject payload = new JSONObject();
                 payload.put("text", command);
+                payload.put("timeZone", TimeZone.getDefault().getID());
                 writeJson(connection, payload);
                 int code = connection.getResponseCode();
                 InputStream stream = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
@@ -190,7 +195,7 @@ public final class NativeApiClient {
 
                 JSONObject payload = new JSONObject();
                 payload.put("model", DIRECT_MODEL);
-                payload.put("input", command);
+                payload.put("input", directGroundedInput(command));
                 payload.put("max_output_tokens", 6000);
                 writeJson(connection, payload);
 
@@ -219,6 +224,16 @@ public final class NativeApiClient {
                 if (connection != null) connection.disconnect();
             }
         });
+    }
+
+    private static String directGroundedInput(String command) {
+        TimeZone zone = TimeZone.getDefault();
+        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss z EEEE", new Locale("tr", "TR"));
+        formatter.setTimeZone(zone);
+        String localNow = formatter.format(new Date());
+        return "AUTHORITATIVE DEVICE CLOCK: " + localNow + " | timezone=" + zone.getID()
+                + "\nUse this clock as ground truth for now/today/this week/this month/this year. Never default to an old training year."
+                + "\n\nUser: " + command;
     }
 
     private static String extractResponseText(JSONObject json) {
