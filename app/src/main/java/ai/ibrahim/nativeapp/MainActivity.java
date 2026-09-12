@@ -68,8 +68,9 @@ public final class MainActivity extends Activity {
     }
 
     /**
-     * NOXARA is voice-first: opening the app starts one continuous conversation.
-     * The foreground service keeps the session alive when the WebView is no longer visible.
+     * NOXARA is voice-first: opening the app starts exactly one persistent microphone owner.
+     * WakeWordService is explicitly stopped first so the legacy SpeechRecognizer loop can never
+     * compete with ContinuousConversationService or produce microphone open/close churn.
      */
     private void enableVoiceFirstMode() {
         getSharedPreferences("native_prefs", MODE_PRIVATE).edit()
@@ -84,8 +85,12 @@ public final class MainActivity extends Activity {
     }
 
     private void startContinuousConversation() {
-        Intent intent = new Intent(this, WakeWordService.class);
-        intent.setAction(WakeWordService.ACTION_CONVERSATION_START);
+        // Hard handoff: the legacy wake/recognizer service must not own RECORD_AUDIO while
+        // continuous conversation is active. stopService prevents START_STICKY from reviving it.
+        stopService(new Intent(this, WakeWordService.class));
+
+        Intent intent = new Intent(this, ContinuousConversationService.class);
+        intent.setAction(ContinuousConversationService.ACTION_START);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent);
         else startService(intent);
     }
@@ -107,7 +112,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/25.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/30.0");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
         WebView.setWebContentsDebuggingEnabled(false);
 
@@ -311,7 +316,7 @@ public final class MainActivity extends Activity {
     private void openPairedWebApp() {
         if (webView == null) return;
         syncDeviceCookie();
-        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=25"));
+        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=30"));
     }
 
     private void handlePairingIntent(Intent intent) {
