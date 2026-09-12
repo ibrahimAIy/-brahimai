@@ -60,7 +60,9 @@ public final class NativeBridge {
     @JavascriptInterface
     public void startConversationMode() {
         activity.runOnUiThread(() -> {
-            sendWakeServiceAction(WakeWordService.ACTION_PAUSE);
+            // One microphone owner only. Kill the legacy wake/SpeechRecognizer service instead of
+            // merely pausing it so Android cannot revive a second RECORD_AUDIO session mid-chat.
+            activity.stopService(new Intent(activity, WakeWordService.class));
             sendConversationServiceAction(ContinuousConversationService.ACTION_START, null);
         });
     }
@@ -88,13 +90,6 @@ public final class NativeBridge {
     public String getVoiceProfile() {
         String stored = activity.getSharedPreferences("native_prefs", Context.MODE_PRIVATE).getString("voice_profile", "lara");
         return "aras".equals(stored) ? "aras" : "lara";
-    }
-
-    private void sendWakeServiceAction(String action) {
-        Intent intent = new Intent(activity, WakeWordService.class);
-        intent.setAction(action);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity.startForegroundService(intent);
-        else activity.startService(intent);
     }
 
     private void sendConversationServiceAction(String action, String profile) {
