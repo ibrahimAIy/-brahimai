@@ -29,6 +29,8 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
     public static final String ACTION_PAUSE = "ai.ibrahim.nativeapp.PAUSE_WAKE";
     public static final String ACTION_RESUME = "ai.ibrahim.nativeapp.RESUME_WAKE";
     public static final String ACTION_STOP = "ai.ibrahim.nativeapp.STOP_WAKE";
+    public static final String ACTION_CONVERSATION_START = "ai.ibrahim.nativeapp.START_CONVERSATION";
+    public static final String ACTION_CONVERSATION_STOP = "ai.ibrahim.nativeapp.STOP_CONVERSATION";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private PorcupineManager porcupineManager;
@@ -41,6 +43,7 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
     private boolean paused;
     private boolean processingCommand;
     private boolean destroyed;
+    private boolean conversationMode;
 
     @Override
     public void onCreate() {
@@ -49,16 +52,17 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
         apiClient = new NativeApiClient(this);
         deviceActions = new DeviceActionRouter(this);
         commandRecognizer = new CommandRecognizer(this);
+        conversationMode = getSharedPreferences("native_prefs", MODE_PRIVATE).getBoolean("conversation_mode", false);
         tts = new TextToSpeech(this, this);
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String utteranceId) { }
             @Override public void onError(String utteranceId) {
-                if ("wake_prompt".equals(utteranceId)) main.post(WakeWordService.this::startCommandRecognition);
-                else if ("assistant_answer".equals(utteranceId)) main.post(WakeWordService.this::resumeAfterCommand);
+                if ("wake_prompt".equals(utteranceId) || "conversation_prompt".equals(utteranceId)) main.post(WakeWordService.this::startCommandRecognition);
+                else if ("assistant_answer".equals(utteranceId)) main.post(WakeWordService.this::afterAssistantSpeech);
             }
             @Override public void onDone(String utteranceId) {
-                if ("wake_prompt".equals(utteranceId)) main.post(WakeWordService.this::startCommandRecognition);
-                else if ("assistant_answer".equals(utteranceId)) main.post(WakeWordService.this::resumeAfterCommand);
+                if ("wake_prompt".equals(utteranceId) || "conversation_prompt".equals(utteranceId)) main.post(WakeWordService.this::startCommandRecognition);
+                else if ("assistant_answer".equals(utteranceId)) main.post(WakeWordService.this::afterAssistantSpeech);
             }
         });
     }
@@ -71,6 +75,27 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
             return START_NOT_STICKY;
         }
         startForegroundNow("Başlatılıyor…", false);
+        if (ACTION_CONVERSATION_START.equals(action)) {
+            paused = false;
+            conversationMode = true;
+            getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", true).apply();
+            pauseWakeEngine();
+            processingCommand = true;
+            updateForeground("Canlı sohbet · hazırlanıyor", false);
+            if (ttsReady) speak("Canlı sohbet açık. Dinliyorum.", "conversation_prompt");
+            else main.postDelayed(this::startCommandRecognition, 250);
+            return START_STICKY;
+        }
+        if (ACTION_CONVERSATION_STOP.equals(action)) {
+            conversationMode = false;
+            getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", false).apply();
+            if (commandRecognizer != null) commandRecognizer.stop();
+            processingCommand = false;
+            paused = false;
+            updateForeground("Canlı sohbet kapalı · wake word hazır", false);
+            main.postDelayed(this::startWakeEngine, 250);
+            return START_STICKY;
+        }
         if (ACTION_PAUSE.equals(action)) {
             paused = true;
             pauseWakeEngine();
@@ -103,11 +128,15 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
 
     private void startWakeEngine() {
         if (destroyed || paused || processingCommand || listening) return;
+        if (conversationMode) {
+            startConversationListening();
+            return;
+        }
         String accessKey = new SecretStore(this).get("picovoice_access_key");
         if (accessKey.isEmpty()) {
             paused = true;
             updateForeground("Native Ayarlar → Picovoice AccessKey gerekli", true);
-            NotificationHelper.postResult(this, "Wake word kurulumu eksik", "İbrahim AI'ı açıp Native Ayarlar bölümüne Picovoice AccessKey gir.");
+            NotificationHelper.postResult(this, "Wake word kurulumu eksik", "NOXARA'yı açıp Native Ayarlar bölümüne Picovoice AccessKey gir.");
             return;
         }
         try {
@@ -156,6 +185,14 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
         else main.postDelayed(this::startCommandRecognition, 250);
     }
 
+    private void startConversationListening() {
+        if (destroyed || paused || !conversationMode) return;
+        processingCommand = true;
+        pauseWakeEngine();
+        updateForeground("Canlı sohbet · dinliyorum", false);
+        main.postDelayed(this::startCommandRecognition, 120);
+    }
+
     private void startCommandRecognition() {
         if (destroyed || paused) {
             processingCommand = false;
@@ -163,21 +200,43 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
         }
         commandRecognizer.start(new CommandRecognizer.Callback() {
             @Override public void onCommand(String text) { handleCommand(text); }
-            @Override public void onError(String message) { speakThenResume(message); }
+            @Override public void onError(String message) {
+                if (conversationMode) {
+                    updateForeground("Canlı sohbet · seni bekliyorum", false);
+                    main.postDelayed(WakeWordService.this::startConversationListening, 650);
+                } else {
+                    speakThenResume(message);
+                }
+            }
         });
     }
 
     private void handleCommand(String text) {
         String normalized = text.toLowerCase(new Locale("tr", "TR"));
         updateForeground("Komut: " + compact(text, 80), false);
+        if (normalized.contains("sohbet modunu kapat") || normalized.contains("konuşma modunu kapat") || normalized.contains("canlı sesi kapat")) {
+            conversationMode = false;
+            getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", false).apply();
+            speakThenResume("Canlı sohbeti kapattım. Wake word ile devam edebilirsin.");
+            return;
+        }
+        if (normalized.contains("sohbet modunu aç") || normalized.contains("konuşma modunu aç") || normalized.contains("canlı sesi aç")) {
+            conversationMode = true;
+            getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", true).apply();
+            if (ttsReady) speak("Canlı sohbet açık. Dinliyorum.", "conversation_prompt");
+            else main.postDelayed(this::startCommandRecognition, 200);
+            return;
+        }
         if (normalized.contains("dinlemeyi kapat") || normalized.contains("dinlemeyi durdur") || normalized.contains("7 24 kapat")) {
             speak("7 24 dinlemeyi kapatıyorum", "stop_answer");
-            getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("desired_enabled", false).apply();
+            getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("desired_enabled", false).putBoolean("conversation_mode", false).apply();
+            conversationMode = false;
             main.postDelayed(() -> stopEverything(true), 1400);
             return;
         }
-        if (normalized.contains("saat kaç") || normalized.contains("saati söyle")) {
-            speakThenResume("Saat " + new SimpleDateFormat("HH:mm", new Locale("tr", "TR")).format(new Date()));
+        String clockAnswer = localClockAnswer(normalized);
+        if (!clockAnswer.isEmpty()) {
+            speakThenResume(clockAnswer);
             return;
         }
         if (normalized.contains("pil") && (normalized.contains("kaç") || normalized.contains("yüzde"))) {
@@ -185,8 +244,8 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
             speakThenResume("Pil yüzde " + manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY));
             return;
         }
-        if (normalized.contains("uygulamayı aç") || normalized.contains("ibrahim ai aç")) {
-            NotificationHelper.postResult(this, "İbrahim AI", "Uygulamayı açmak için bu bildirime dokun.");
+        if (normalized.contains("uygulamayı aç") || normalized.contains("ibrahim ai aç") || normalized.contains("noxara aç")) {
+            NotificationHelper.postResult(this, "NOXARA", "Uygulamayı açmak için bu bildirime dokun.");
             speakThenResume("Uygulamayı açmak için bildirime dokunabilirsin");
             return;
         }
@@ -203,33 +262,65 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
             return;
         }
         if (!apiClient.isPaired()) {
-            NotificationHelper.postResult(this, "Native eşleştirme gerekli", "İbrahim AI'ı açıp hesabına giriş yap; cihaz otomatik eşleşecek.");
-            speakThenResume("Önce İbrahim AI uygulamasını açıp hesabına bir kez giriş yapmalısın");
+            NotificationHelper.postResult(this, "Native eşleştirme gerekli", "NOXARA'yı açıp hesabına giriş yap; cihaz otomatik eşleşecek.");
+            speakThenResume("Önce NOXARA uygulamasını açıp hesabına bir kez giriş yapmalısın");
             return;
         }
-        updateForeground("İbrahim AI düşünüyor…", false);
+        updateForeground("NOXARA düşünüyor…", false);
         apiClient.sendCommand(text, new NativeApiClient.Callback() {
             @Override public void onSuccess(String response) {
-                NotificationHelper.postResult(WakeWordService.this, "İbrahim AI yanıtı", response);
+                NotificationHelper.postResult(WakeWordService.this, "NOXARA yanıtı", response);
                 speakThenResume(response);
             }
             @Override public void onError(String message) {
-                NotificationHelper.postResult(WakeWordService.this, "İbrahim AI", message);
+                NotificationHelper.postResult(WakeWordService.this, "NOXARA", message);
                 speakThenResume(message);
             }
         });
     }
 
+    private String localClockAnswer(String normalized) {
+        boolean asksTime = normalized.contains("saat kaç") || normalized.contains("saati söyle") || normalized.contains("şu an saat") || normalized.contains("simdi saat") || normalized.contains("şimdi saat");
+        boolean asksDate = normalized.contains("bugün tarih") || normalized.contains("bugunun tarihi") || normalized.contains("bugünün tarihi") || normalized.contains("ayın kaçı") || normalized.contains("ayin kaci");
+        boolean asksYear = normalized.contains("hangi yıldayız") || normalized.contains("hangi yildayiz") || normalized.contains("yıl kaç") || normalized.contains("yil kac");
+        boolean asksWeekday = normalized.contains("günlerden ne") || normalized.contains("gunlerden ne");
+        if (!asksTime && !asksDate && !asksYear && !asksWeekday) return "";
+        Date now = new Date();
+        String time = new SimpleDateFormat("HH:mm:ss", new Locale("tr", "TR")).format(now);
+        String date = new SimpleDateFormat("dd.MM.yyyy", new Locale("tr", "TR")).format(now);
+        String year = new SimpleDateFormat("yyyy", new Locale("tr", "TR")).format(now);
+        String weekday = new SimpleDateFormat("EEEE", new Locale("tr", "TR")).format(now);
+        StringBuilder answer = new StringBuilder();
+        if (asksTime) answer.append("Saat ").append(time).append(".");
+        if (asksDate) appendSentence(answer, "Tarih " + date + ".");
+        if (asksYear) appendSentence(answer, year + " yılındayız.");
+        if (asksWeekday) appendSentence(answer, "Bugün " + weekday + ".");
+        return answer.toString();
+    }
+
+    private static void appendSentence(StringBuilder builder, String sentence) {
+        if (builder.length() > 0) builder.append(' ');
+        builder.append(sentence);
+    }
+
     private void speakThenResume(String text) {
         if (ttsReady) speak(compactForSpeech(text), "assistant_answer");
         else {
-            NotificationHelper.postResult(this, "İbrahim AI", text);
-            main.postDelayed(this::resumeAfterCommand, 300);
+            NotificationHelper.postResult(this, "NOXARA", text);
+            main.postDelayed(this::afterAssistantSpeech, 300);
         }
     }
 
     private void speak(String text, String utteranceId) {
         if (ttsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId);
+    }
+
+    private void afterAssistantSpeech() {
+        if (conversationMode && !paused && !destroyed) {
+            startConversationListening();
+            return;
+        }
+        resumeAfterCommand();
     }
 
     private String compactForSpeech(String text) {
@@ -265,7 +356,8 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
     }
 
     private void stopEverything(boolean clearPreference) {
-        if (clearPreference) getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("desired_enabled", false).apply();
+        if (clearPreference) getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("desired_enabled", false).putBoolean("conversation_mode", false).apply();
+        conversationMode = false;
         destroyed = true;
         releasePorcupine();
         if (apiClient != null) apiClient.shutdown();
