@@ -13,6 +13,8 @@ import android.os.Looper;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -32,6 +34,7 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
     private PorcupineManager porcupineManager;
     private CommandRecognizer commandRecognizer;
     private NativeApiClient apiClient;
+    private DeviceActionRouter deviceActions;
     private TextToSpeech tts;
     private boolean ttsReady;
     private boolean listening;
@@ -44,6 +47,7 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
         super.onCreate();
         NotificationHelper.createChannels(this);
         apiClient = new NativeApiClient(this);
+        deviceActions = new DeviceActionRouter(this);
         commandRecognizer = new CommandRecognizer(this);
         tts = new TextToSpeech(this, this);
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
@@ -184,6 +188,18 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
         if (normalized.contains("uygulamayı aç") || normalized.contains("ibrahim ai aç")) {
             NotificationHelper.postResult(this, "İbrahim AI", "Uygulamayı açmak için bu bildirime dokun.");
             speakThenResume("Uygulamayı açmak için bildirime dokunabilirsin");
+            return;
+        }
+        String localAction = deviceActions.performFromNaturalLanguage(text);
+        if (!localAction.isEmpty()) {
+            try {
+                JSONObject result = new JSONObject(localAction);
+                String message = result.optString("message", "Cihaz eylemini başlattım.");
+                NotificationHelper.postResult(this, "NOXARA · cihaz eylemi", message);
+                speakThenResume(message);
+            } catch (Exception exception) {
+                speakThenResume("Cihaz eylemini başlattım fakat sonuç metnini okuyamadım.");
+            }
             return;
         }
         if (!apiClient.isPaired()) {
