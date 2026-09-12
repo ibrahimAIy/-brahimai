@@ -36,6 +36,7 @@ public final class ContinuousConversationService extends Service implements Text
     private boolean busy;
     private boolean assistantSpeaking;
     private boolean destroyed;
+    private boolean greetingPending;
 
     @Override
     public void onCreate() {
@@ -59,6 +60,7 @@ public final class ContinuousConversationService extends Service implements Text
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? ACTION_START : intent.getAction();
+        boolean explicitStart = intent != null && ACTION_START.equals(intent.getAction());
         startForegroundNow("Canlı ses hazırlanıyor");
 
         if (ACTION_STOP.equals(action)) {
@@ -79,6 +81,10 @@ public final class ContinuousConversationService extends Service implements Text
         if (ttsReady) applyVoiceProfile();
         attachPersistentMicrophone();
         updateForeground("Canlı ses · " + voiceDisplayName() + " · mikrofon tek oturum");
+        if (explicitStart) {
+            greetingPending = true;
+            speakGreetingIfReady();
+        }
         return START_STICKY;
     }
 
@@ -113,8 +119,6 @@ public final class ContinuousConversationService extends Service implements Text
     private void processUtterance(byte[] wavAudio) {
         if (destroyed || busy || !isConversationMode()) return;
         busy = true;
-        // Hardware microphone remains recording. We only ignore frames in software while this
-        // utterance is being transcribed and answered.
         audioEngine.setCaptureEnabled(false);
         audioEngine.setAssistantSpeaking(false);
         updateForeground("Duydum · mikrofon hâlâ açık · çözümlüyorum");
@@ -152,6 +156,12 @@ public final class ContinuousConversationService extends Service implements Text
                 resumeListening();
             }
         });
+    }
+
+    private void speakGreetingIfReady() {
+        if (!greetingPending || destroyed || !isConversationMode() || !ttsReady || tts == null) return;
+        greetingPending = false;
+        speakAnswer("Merhaba. Seni dinliyorum.");
     }
 
     private void speakAnswer(String text) {
@@ -209,7 +219,10 @@ public final class ContinuousConversationService extends Service implements Text
         if (status != TextToSpeech.SUCCESS || tts == null) return;
         int result = tts.setLanguage(new Locale("tr", "TR"));
         ttsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED;
-        if (ttsReady) applyVoiceProfile();
+        if (ttsReady) {
+            applyVoiceProfile();
+            speakGreetingIfReady();
+        }
     }
 
     private void setVoiceProfile(String requested) {
@@ -267,7 +280,6 @@ public final class ContinuousConversationService extends Service implements Text
             }
             if (best != null) tts.setVoice(best);
         } catch (Exception ignored) {
-            // Vendor TTS voice metadata can be incomplete; pitch/rate still keep Lara and Aras distinct.
         }
     }
 
@@ -326,6 +338,7 @@ public final class ContinuousConversationService extends Service implements Text
     private void stopConversation() {
         if (destroyed) return;
         destroyed = true;
+        greetingPending = false;
         getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", false).apply();
         if (audioEngine != null) audioEngine.stopExplicitly();
         shutdownServiceResources();
@@ -345,9 +358,6 @@ public final class ContinuousConversationService extends Service implements Text
     @Override
     public void onDestroy() {
         if (!destroyed) {
-            // Service recreation is not a user request to close the microphone. Detach the service
-            // callback but leave the process-wide AudioRecord alive so START_STICKY can reattach
-            // without another microphone open/close event.
             if (audioEngine != null) {
                 if (isConversationMode()) audioEngine.detach();
                 else audioEngine.stopExplicitly();
