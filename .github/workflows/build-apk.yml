@@ -1,4 +1,4 @@
-name: Build Ibrahim AI Android APK
+name: Build NOXARA Android APK
 
 on:
   workflow_dispatch:
@@ -24,6 +24,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Apply NOXARA compatibility branding
+        shell: bash
+        run: |
+          grep -RIl --exclude-dir=build -e 'İbrahim AI' -e 'Ibrahim AI' -e 'IbrahimAI' app/src/main | while read -r file; do
+            sed -i 's/İbrahim AI/NOXARA/g; s/Ibrahim AI/NOXARA/g; s/IbrahimAI/NOXARA/g' "$file"
+          done
+          if grep -RIn --exclude-dir=build -e 'İbrahim AI' -e 'Ibrahim AI' -e 'IbrahimAI' app/src/main; then
+            echo 'Old visible brand text remains in Android sources.'
+            exit 1
+          fi
       - name: Restore stable debug signing key
         uses: actions/cache@v4
         with:
@@ -32,11 +42,11 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
       - name: Prepare direct-download APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk IbrahimAI.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk NOXARA.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: IbrahimAI-Native-debug-apk
-          path: IbrahimAI.apk
+          name: NOXARA-Android-debug-apk
+          path: NOXARA.apk
           if-no-files-found: error
           retention-days: 14
       - name: Publish latest APK
@@ -44,8 +54,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view native-latest >/dev/null 2>&1; then
-            gh release upload native-latest IbrahimAI.apk --clobber
-            gh release edit native-latest --title "İbrahim AI Native - Latest" --notes "Otomatik üretilen en güncel test APK'sı. Kaynak commit: $GITHUB_SHA" --latest
+            gh release upload native-latest NOXARA.apk --clobber
+            gh release edit native-latest --title "NOXARA Android - Latest" --notes "En güncel NOXARA Android test APK'sı. Aynı paket kimliği korunur; önceki native sürümün üzerine güncellenebilir. Kaynak commit: $GITHUB_SHA" --latest
           else
-            gh release create native-latest IbrahimAI.apk --title "İbrahim AI Native - Latest" --notes "Otomatik üretilen en güncel test APK'sı. Kaynak commit: $GITHUB_SHA" --latest
+            gh release create native-latest NOXARA.apk --title "NOXARA Android - Latest" --notes "En güncel NOXARA Android test APK'sı. Aynı paket kimliği korunur; önceki native sürümün üzerine güncellenebilir. Kaynak commit: $GITHUB_SHA" --latest
           fi
