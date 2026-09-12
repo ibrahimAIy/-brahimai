@@ -53,30 +53,24 @@ public final class MainActivity extends Activity {
         NotificationHelper.createChannels(this);
         getSharedPreferences("native_prefs", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(listener);
 
+        // A fresh process starts with live voice off. If Android merely recreated the Activity while
+        // the process-wide microphone engine is already alive, keep the existing voice session.
+        if (!VoiceAudioEngine.get().isRunning()) {
+            getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", false).apply();
+        }
+
         buildCleanAppShell();
         configureWebView();
         syncDeviceCookie();
         webView.loadUrl(APP_URL);
 
-        if (getIntent() != null && getIntent().getBooleanExtra("restart_wake_word", false)) {
-            Toast.makeText(this, "7/24 ses motorunu yeniden başlatmak için NOXARA içindeki Android ayarlarını açabilirsin.", Toast.LENGTH_LONG).show();
-        }
         handlePairingIntent(getIntent());
         refreshNativeStatus();
         pairingHandler.postDelayed(this::checkPendingPairing, 400L);
-        enableVoiceFirstMode();
     }
 
-    /**
-     * NOXARA is voice-first: opening the app starts exactly one persistent microphone owner.
-     * WakeWordService is explicitly stopped first so the legacy SpeechRecognizer loop can never
-     * compete with ContinuousConversationService or produce microphone open/close churn.
-     */
-    private void enableVoiceFirstMode() {
-        getSharedPreferences("native_prefs", MODE_PRIVATE).edit()
-                .putBoolean("conversation_mode", true)
-                .putBoolean("desired_enabled", true)
-                .apply();
+    /** Starts the one persistent native microphone session only after the user enters live voice. */
+    public void startConversationFromUi() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             startContinuousConversation();
         } else {
@@ -85,10 +79,7 @@ public final class MainActivity extends Activity {
     }
 
     private void startContinuousConversation() {
-        // Hard handoff: the legacy wake/recognizer service must not own RECORD_AUDIO while
-        // continuous conversation is active. stopService prevents START_STICKY from reviving it.
-        stopService(new Intent(this, WakeWordService.class));
-
+        getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", true).apply();
         Intent intent = new Intent(this, ContinuousConversationService.class);
         intent.setAction(ContinuousConversationService.ACTION_START);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent);
@@ -112,7 +103,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/30.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/31.0");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
         WebView.setWebContentsDebuggingEnabled(false);
 
@@ -316,7 +307,7 @@ public final class MainActivity extends Activity {
     private void openPairedWebApp() {
         if (webView == null) return;
         syncDeviceCookie();
-        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=30"));
+        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=31"));
     }
 
     private void handlePairingIntent(Intent intent) {
@@ -343,10 +334,10 @@ public final class MainActivity extends Activity {
     public void refreshNativeStatus() {
         SharedPreferences prefs = getSharedPreferences("native_prefs", MODE_PRIVATE);
         SecretStore secrets = new SecretStore(this);
-        boolean enabled = prefs.getBoolean("desired_enabled", false);
+        boolean live = prefs.getBoolean("conversation_mode", false) && VoiceAudioEngine.get().isRunning();
         boolean pairing = !secrets.has("device_token") && !prefs.getString("pending_pair_secret", "").isEmpty();
         String accountState = secrets.has("device_token") ? "hesap bağlı" : pairing ? "eşleştiriliyor" : "hesap bekliyor";
-        updateNativeStatus((enabled ? "7/24 açık" : "7/24 kapalı") + " · " + accountState);
+        updateNativeStatus((live ? "canlı ses açık · mikrofon tek oturum" : "canlı ses hazır") + " · " + accountState);
     }
 
     @Override

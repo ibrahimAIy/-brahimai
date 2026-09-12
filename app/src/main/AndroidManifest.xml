@@ -9,9 +9,6 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <queries>
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
-        </intent>
         <package android:name="com.google.android.youtube" />
         <package android:name="com.spotify.music" />
         <package android:name="com.netflix.mediaclient" />
@@ -47,12 +44,8 @@
             android:exported="false"
             android:label="NOXARA · Geliştirici" />
 
-        <service
-            android:name="ai.ibrahim.nativeapp.WakeWordService"
-            android:exported="false"
-            android:foregroundServiceType="microphone"
-            android:stopWithTask="false" />
-
+        <!-- Live voice has one microphone owner only. Legacy WakeWordService/SpeechRecognizer is
+             intentionally not registered, so it cannot compete for RECORD_AUDIO. -->
         <service
             android:name="ai.ibrahim.nativeapp.ContinuousConversationService"
             android:exported="false"
