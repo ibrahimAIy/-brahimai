@@ -47,6 +47,11 @@
             android:exported="false"
             android:label="NOXARA · Geliştirici" />
 
+        <activity
+            android:name="ai.ibrahim.nativeapp.VoiceActivity"
+            android:exported="false"
+            android:label="NOXARA · Sesli Sohbet" />
+
         <service
             android:name="ai.ibrahim.nativeapp.WakeWordService"
             android:exported="false"
