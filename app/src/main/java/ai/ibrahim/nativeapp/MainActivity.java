@@ -54,6 +54,7 @@ public final class MainActivity extends Activity {
 
         buildCleanAppShell();
         configureWebView();
+        syncDeviceCookie();
         webView.loadUrl(APP_URL);
 
         if (getIntent() != null && getIntent().getBooleanExtra("restart_wake_word", false)) {
@@ -81,7 +82,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/24.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/25.0");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
         WebView.setWebContentsDebuggingEnabled(false);
 
@@ -90,6 +91,18 @@ public final class MainActivity extends Activity {
         webView.addJavascriptInterface(new NativeBridge(this), "IbrahimNative");
         webView.setWebViewClient(new TrustedClient());
         webView.setWebChromeClient(new NativeChromeClient());
+    }
+
+    private void syncDeviceCookie() {
+        SecretStore store = new SecretStore(this);
+        String token = store.get("device_token");
+        CookieManager manager = CookieManager.getInstance();
+        if (token == null || token.isEmpty()) {
+            manager.setCookie(APP_URL, "noxara_device=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax");
+        } else {
+            manager.setCookie(APP_URL, "noxara_device=" + token + "; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax");
+        }
+        manager.flush();
     }
 
     private final class TrustedClient extends WebViewClient {
@@ -163,6 +176,7 @@ public final class MainActivity extends Activity {
     public void startBrowserPairing() {
         SecretStore secrets = new SecretStore(this);
         if (secrets.has("device_token")) {
+            syncDeviceCookie();
             openPairedWebApp();
             return;
         }
@@ -208,6 +222,7 @@ public final class MainActivity extends Activity {
         SecretStore secrets = new SecretStore(this);
         SharedPreferences prefs = getSharedPreferences("native_prefs", MODE_PRIVATE);
         if (secrets.has("device_token")) {
+            syncDeviceCookie();
             clearPendingPairing();
             refreshNativeStatus();
             return;
@@ -235,6 +250,7 @@ public final class MainActivity extends Activity {
                     if (!token.equals(store.get("device_token")) || !deviceId.equals(store.get("device_id"))) {
                         throw new IllegalStateException("Pair token verification failed");
                     }
+                    syncDeviceCookie();
                     apiClient.acknowledgePairing(pairSecret);
                     clearPendingPairing();
                     Toast.makeText(MainActivity.this, "NOXARA hesabın bu telefonla eşleşti.", Toast.LENGTH_SHORT).show();
@@ -269,7 +285,8 @@ public final class MainActivity extends Activity {
 
     private void openPairedWebApp() {
         if (webView == null) return;
-        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=24"));
+        syncDeviceCookie();
+        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=25"));
     }
 
     private void handlePairingIntent(Intent intent) {
@@ -322,6 +339,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        syncDeviceCookie();
         refreshNativeStatus();
         pairingHandler.postDelayed(this::checkPendingPairing, 300L);
     }
