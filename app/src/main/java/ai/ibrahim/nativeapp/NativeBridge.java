@@ -1,5 +1,8 @@
 package ai.ibrahim.nativeapp;
 
+import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -52,6 +55,28 @@ public final class NativeBridge {
     @JavascriptInterface
     public String performNaturalLanguage(String text) {
         return deviceActions.performFromNaturalLanguage(text);
+    }
+
+    @JavascriptInterface
+    public void startConversationMode() {
+        activity.runOnUiThread(() -> sendWakeServiceAction(WakeWordService.ACTION_CONVERSATION_START));
+    }
+
+    @JavascriptInterface
+    public void stopConversationMode() {
+        activity.runOnUiThread(() -> sendWakeServiceAction(WakeWordService.ACTION_CONVERSATION_STOP));
+    }
+
+    @JavascriptInterface
+    public boolean isConversationMode() {
+        return activity.getSharedPreferences("native_prefs", Context.MODE_PRIVATE).getBoolean("conversation_mode", false);
+    }
+
+    private void sendWakeServiceAction(String action) {
+        Intent intent = new Intent(activity, WakeWordService.class);
+        intent.setAction(action);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity.startForegroundService(intent);
+        else activity.startService(intent);
     }
 
     @JavascriptInterface
