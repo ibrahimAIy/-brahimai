@@ -10,8 +10,8 @@ android {
         applicationId 'ai.noxara.ibrahim.v24'
         minSdk 26
         targetSdk 35
-        versionCode 27
-        versionName '27.0-live-voice-clock'
+        versionCode 28
+        versionName '28.0-voice-first'
     }
 
     compileOptions {
