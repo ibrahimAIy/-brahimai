@@ -29,7 +29,6 @@ import java.security.SecureRandom;
 public final class MainActivity extends Activity {
     private static final String APP_URL = "https://ibrahim-ai-y1xmj0.v2.appdeploy.ai/";
     private static final int REQUEST_AUDIO = 2101;
-    private static final int REQUEST_CONTINUOUS_AUDIO = 2105;
     private static final int REQUEST_FILE_CHOOSER = 2104;
     private static final long PAIR_TTL_MS = 10 * 60 * 1000L;
 
@@ -64,30 +63,13 @@ public final class MainActivity extends Activity {
         handlePairingIntent(getIntent());
         refreshNativeStatus();
         pairingHandler.postDelayed(this::checkPendingPairing, 400L);
-        enableVoiceFirstMode();
-    }
-
-    /**
-     * NOXARA is voice-first: opening the app starts one continuous conversation.
-     * The foreground service keeps the session alive when the WebView is no longer visible.
-     */
-    private void enableVoiceFirstMode() {
+        // V28 accidentally enabled the microphone on every launch. V29 explicitly
+        // resets that state; voice only starts inside the dedicated VoiceActivity.
+        stopService(new Intent(this, WakeWordService.class));
         getSharedPreferences("native_prefs", MODE_PRIVATE).edit()
-                .putBoolean("conversation_mode", true)
-                .putBoolean("desired_enabled", true)
+                .putBoolean("conversation_mode", false)
+                .putBoolean("desired_enabled", false)
                 .apply();
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            startContinuousConversation();
-        } else {
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_CONTINUOUS_AUDIO);
-        }
-    }
-
-    private void startContinuousConversation() {
-        Intent intent = new Intent(this, WakeWordService.class);
-        intent.setAction(WakeWordService.ACTION_CONVERSATION_START);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent);
-        else startService(intent);
     }
 
     private void buildCleanAppShell() {
@@ -149,6 +131,7 @@ public final class MainActivity extends Activity {
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
             refreshNativeStatus();
+            installNativeVoiceRoomHook(view);
         }
 
         @Override
@@ -354,14 +337,13 @@ public final class MainActivity extends Activity {
         callback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_CONTINUOUS_AUDIO
-                && grantResults.length > 0
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startContinuousConversation();
-        }
+    private void installNativeVoiceRoomHook(WebView view) {
+        view.evaluateJavascript(
+                "(function(){if(window.__noxaraVoiceRoomHook)return;window.__noxaraVoiceRoomHook=true;"
+                        + "document.addEventListener('click',function(e){var b=e.target&&e.target.closest?e.target.closest('.voice-live-button'):null;"
+                        + "if(!b)return;e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();"
+                        + "if(window.IbrahimNative&&window.IbrahimNative.openVoiceRoom)window.IbrahimNative.openVoiceRoom();},true);})();",
+                null);
     }
 
     @Override
