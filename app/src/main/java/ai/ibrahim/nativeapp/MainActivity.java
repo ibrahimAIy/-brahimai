@@ -81,7 +81,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/23.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/24.0");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
         WebView.setWebContentsDebuggingEnabled(false);
 
@@ -181,7 +181,10 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        Uri pairingUrl = Uri.parse(APP_URL).buildUpon().appendQueryParameter("native_pair", pairSecret).build();
+        Uri pairingUrl = Uri.parse(APP_URL).buildUpon()
+                .appendQueryParameter("native_pair", pairSecret)
+                .appendQueryParameter("native_return", "noxara24")
+                .build();
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, pairingUrl));
             Toast.makeText(this, "Google girişini tarayıcıda tamamla; NOXARA uygulaması otomatik eşleşecek.", Toast.LENGTH_LONG).show();
@@ -266,12 +269,12 @@ public final class MainActivity extends Activity {
 
     private void openPairedWebApp() {
         if (webView == null) return;
-        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=23"));
+        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=24"));
     }
 
     private void handlePairingIntent(Intent intent) {
         Uri data = intent != null ? intent.getData() : null;
-        if (data != null && "noxara".equals(data.getScheme()) && "paired".equals(data.getHost())) {
+        if (data != null && "noxara24".equals(data.getScheme()) && "paired".equals(data.getHost())) {
             pairingHandler.postDelayed(this::checkPendingPairing, 200L);
         }
     }

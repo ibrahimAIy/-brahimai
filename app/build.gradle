@@ -7,11 +7,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'app.noxara.privateai'
+        applicationId 'ai.noxara.ibrahim.v24'
         minSdk 26
         targetSdk 35
-        versionCode 23
-        versionName '23.0-pairing-persistence'
+        versionCode 24
+        versionName '24.0-clean-install'
     }
 
     compileOptions {
