@@ -13,6 +13,9 @@ Bu proje mevcut İbrahim AI web/backend sistemini native Android kabuğunda çal
 - Tanınan komutun güvenli cihaz tokenı ile İbrahim AI backend'ine gönderilmesi
 - Cihaz tokenı ve Picovoice AccessKey için Android Keystore AES/GCM şifreleme
 - Türkçe Text-to-Speech ile sesli cevap
+- V28 voice-first mod: uygulama açılınca tek izin sonrası sürekli canlı sohbet; her cevap sonrası otomatik yeniden dinleme
+- Ekrana yanıt basmadan sesli cevap, tekrarlanan açılış anonsu olmadan hızlı dinleme
+- Cihazdaki en kaliteli Türkçe sesi otomatik seçme, akıcı hız/perde ve konuşmaya uygun metin temizleme
 - Saat ve pil yüzdesi gibi bazı komutları internetsiz yerel çalıştırma
 - Foreground bildiriminden duraklat / devam / kapat
 - Telefon yeniden başladığında Android kısıtları nedeniyle kullanıcıya yeniden etkinleştirme bildirimi
