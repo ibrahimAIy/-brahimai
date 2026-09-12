@@ -59,12 +59,15 @@ public final class NativeBridge {
 
     @JavascriptInterface
     public void startConversationMode() {
-        activity.runOnUiThread(() -> sendWakeServiceAction(WakeWordService.ACTION_CONVERSATION_START));
+        activity.runOnUiThread(() -> {
+            sendWakeServiceAction(WakeWordService.ACTION_PAUSE);
+            sendConversationServiceAction(ContinuousConversationService.ACTION_START, null);
+        });
     }
 
     @JavascriptInterface
     public void stopConversationMode() {
-        activity.runOnUiThread(() -> sendWakeServiceAction(WakeWordService.ACTION_CONVERSATION_STOP));
+        activity.runOnUiThread(() -> sendConversationServiceAction(ContinuousConversationService.ACTION_STOP, null));
     }
 
     @JavascriptInterface
@@ -72,9 +75,32 @@ public final class NativeBridge {
         return activity.getSharedPreferences("native_prefs", Context.MODE_PRIVATE).getBoolean("conversation_mode", false);
     }
 
+    @JavascriptInterface
+    public void setVoiceProfile(String profile) {
+        String normalized = "aras".equalsIgnoreCase(profile) ? "aras" : "lara";
+        activity.getSharedPreferences("native_prefs", Context.MODE_PRIVATE).edit().putString("voice_profile", normalized).apply();
+        activity.runOnUiThread(() -> {
+            if (isConversationMode()) sendConversationServiceAction(ContinuousConversationService.ACTION_SET_VOICE, normalized);
+        });
+    }
+
+    @JavascriptInterface
+    public String getVoiceProfile() {
+        String stored = activity.getSharedPreferences("native_prefs", Context.MODE_PRIVATE).getString("voice_profile", "lara");
+        return "aras".equals(stored) ? "aras" : "lara";
+    }
+
     private void sendWakeServiceAction(String action) {
         Intent intent = new Intent(activity, WakeWordService.class);
         intent.setAction(action);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity.startForegroundService(intent);
+        else activity.startService(intent);
+    }
+
+    private void sendConversationServiceAction(String action, String profile) {
+        Intent intent = new Intent(activity, ContinuousConversationService.class);
+        intent.setAction(action);
+        if (profile != null) intent.putExtra(ContinuousConversationService.EXTRA_VOICE_PROFILE, profile);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity.startForegroundService(intent);
         else activity.startService(intent);
     }
