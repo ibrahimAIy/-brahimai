@@ -40,13 +40,8 @@
 
         <activity
             android:name="ai.ibrahim.nativeapp.DeveloperActivity"
-            android:exported="true"
-            android:label="NOXARA · Geliştirici">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="NOXARA · Geliştirici" />
 
         <service
             android:name="ai.ibrahim.nativeapp.WakeWordService"
