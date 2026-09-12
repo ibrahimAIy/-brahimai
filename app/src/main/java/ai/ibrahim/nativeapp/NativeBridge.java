@@ -11,12 +11,14 @@ public final class NativeBridge {
 
     private final MainActivity activity;
     private final SecretStore secretStore;
+    private final DeviceActionRouter deviceActions;
     private boolean freshChatOpened;
     private int freshChatAttempts;
 
     public NativeBridge(MainActivity activity) {
         this.activity = activity;
         this.secretStore = new SecretStore(activity);
+        this.deviceActions = new DeviceActionRouter(activity);
     }
 
     @JavascriptInterface
@@ -40,6 +42,16 @@ public final class NativeBridge {
     @JavascriptInterface
     public void openBrowserApp() {
         activity.runOnUiThread(activity::openBrowserApp);
+    }
+
+    @JavascriptInterface
+    public String performAction(String action, String payload) {
+        return deviceActions.perform(action, payload);
+    }
+
+    @JavascriptInterface
+    public String performNaturalLanguage(String text) {
+        return deviceActions.performFromNaturalLanguage(text);
     }
 
     @JavascriptInterface
