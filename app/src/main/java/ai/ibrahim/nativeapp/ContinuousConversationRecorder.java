@@ -19,12 +19,12 @@ public final class ContinuousConversationRecorder {
 
     private static final int SAMPLE_RATE = 16000;
     private static final int FRAME_SAMPLES = 320;
-    private static final int PRE_ROLL_FRAMES = 12;
+    private static final int PRE_ROLL_FRAMES = 16;
     private static final int START_FRAMES = 2;
     private static final int START_FRAMES_DURING_TTS = 3;
-    private static final int END_SILENCE_FRAMES = 22;
-    private static final int MIN_UTTERANCE_FRAMES = 7;
-    private static final int MAX_UTTERANCE_FRAMES = 900;
+    private static final int END_SILENCE_FRAMES = 42;
+    private static final int MIN_UTTERANCE_FRAMES = 8;
+    private static final int MAX_UTTERANCE_FRAMES = 1200;
 
     private final Object lock = new Object();
     private AudioRecord recorder;
@@ -126,7 +126,7 @@ public final class ContinuousConversationRecorder {
         short[] frame = new short[FRAME_SAMPLES];
         ArrayDeque<short[]> preRoll = new ArrayDeque<>();
         ByteArrayOutputStream utterance = null;
-        double noiseFloor = 240.0;
+        double noiseFloor = 220.0;
         int hotFrames = 0;
         int silenceFrames = 0;
         int utteranceFrames = 0;
@@ -164,8 +164,8 @@ public final class ContinuousConversationRecorder {
 
                 noiseFloor = adaptNoiseFloor(noiseFloor, rms);
                 double startThreshold = assistantSpeaking
-                        ? Math.max(1050.0, noiseFloor * 3.7)
-                        : Math.max(300.0, noiseFloor * 1.85);
+                        ? Math.max(1000.0, noiseFloor * 3.4)
+                        : Math.max(260.0, noiseFloor * 1.65);
                 if (rms >= startThreshold) hotFrames += 1;
                 else hotFrames = Math.max(0, hotFrames - 1);
 
@@ -186,7 +186,7 @@ public final class ContinuousConversationRecorder {
             if (utterance == null) utterance = new ByteArrayOutputStream(32768);
             writePcm16Le(utterance, frame, read);
             utteranceFrames += 1;
-            double endThreshold = Math.max(220.0, noiseFloor * 1.45);
+            double endThreshold = Math.max(200.0, noiseFloor * 1.35);
             if (rms < endThreshold) silenceFrames += 1;
             else silenceFrames = 0;
 
@@ -209,8 +209,8 @@ public final class ContinuousConversationRecorder {
     private static double adaptNoiseFloor(double current, double rms) {
         if (rms <= 0) return current;
         double sample = Math.min(rms, 1800.0);
-        double updated = current * 0.96 + sample * 0.04;
-        return Math.max(120.0, Math.min(900.0, updated));
+        double updated = current * 0.98 + sample * 0.02;
+        return Math.max(100.0, Math.min(850.0, updated));
     }
 
     private static double rms(short[] data, int count) {
