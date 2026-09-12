@@ -59,7 +59,7 @@ public final class NativeBridge {
 
     @JavascriptInterface
     public void startConversationMode() {
-        activity.runOnUiThread(() -> sendConversationServiceAction(ContinuousConversationService.ACTION_START, null));
+        activity.runOnUiThread(activity::startConversationFromUi);
     }
 
     @JavascriptInterface
