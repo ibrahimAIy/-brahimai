@@ -19,6 +19,9 @@ import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Set;
+
+import android.speech.tts.Voice;
 
 import ai.picovoice.porcupine.Porcupine;
 import ai.picovoice.porcupine.PorcupineException;
@@ -82,8 +85,8 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
             pauseWakeEngine();
             processingCommand = true;
             updateForeground("Canlı sohbet · hazırlanıyor", false);
-            if (ttsReady) speak("Canlı sohbet açık. Dinliyorum.", "conversation_prompt");
-            else main.postDelayed(this::startCommandRecognition, 250);
+            // Do not speak a repetitive opening prompt. Start listening immediately.
+            main.postDelayed(this::startCommandRecognition, 80);
             return START_STICKY;
         }
         if (ACTION_CONVERSATION_STOP.equals(action)) {
@@ -223,8 +226,7 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
         if (normalized.contains("sohbet modunu aç") || normalized.contains("konuşma modunu aç") || normalized.contains("canlı sesi aç")) {
             conversationMode = true;
             getSharedPreferences("native_prefs", MODE_PRIVATE).edit().putBoolean("conversation_mode", true).apply();
-            if (ttsReady) speak("Canlı sohbet açık. Dinliyorum.", "conversation_prompt");
-            else main.postDelayed(this::startCommandRecognition, 200);
+            main.postDelayed(this::startCommandRecognition, 80);
             return;
         }
         if (normalized.contains("dinlemeyi kapat") || normalized.contains("dinlemeyi durdur") || normalized.contains("7 24 kapat")) {
@@ -269,7 +271,6 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
         updateForeground("NOXARA düşünüyor…", false);
         apiClient.sendCommand(text, new NativeApiClient.Callback() {
             @Override public void onSuccess(String response) {
-                NotificationHelper.postResult(WakeWordService.this, "NOXARA yanıtı", response);
                 speakThenResume(response);
             }
             @Override public void onError(String message) {
@@ -324,9 +325,15 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
     }
 
     private String compactForSpeech(String text) {
-        String cleaned = text.replaceAll("https?://\\S+", " bağlantı ").replaceAll("\\s+", " ").trim();
-        int max = Math.min(3500, TextToSpeech.getMaxSpeechInputLength() - 100);
-        return cleaned.length() <= max ? cleaned : cleaned.substring(0, max) + ". Devamını bildirimde bıraktım.";
+        String cleaned = text
+                .replaceAll("```[\\s\\S]*?```", " ")
+                .replaceAll("https?://\\S+", " bağlantı ")
+                .replaceAll("[*_#>`|]", " ")
+                .replace("%", " yüzde ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        int max = Math.min(1400, TextToSpeech.getMaxSpeechInputLength() - 100);
+        return cleaned.length() <= max ? cleaned : cleaned.substring(0, max) + ". İstersen devamını anlatırım.";
     }
 
     private static String compact(String text, int max) {
@@ -373,7 +380,34 @@ public final class WakeWordService extends Service implements TextToSpeech.OnIni
         if (status == TextToSpeech.SUCCESS) {
             int result = tts.setLanguage(new Locale("tr", "TR"));
             ttsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED;
-            tts.setSpeechRate(1.02f);
+            selectBestTurkishVoice();
+            tts.setSpeechRate(1.08f);
+            tts.setPitch(1.04f);
+        }
+    }
+
+    private void selectBestTurkishVoice() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || tts == null) return;
+        try {
+            Set<Voice> voices = tts.getVoices();
+            if (voices == null) return;
+            Voice best = null;
+            int bestScore = Integer.MIN_VALUE;
+            for (Voice voice : voices) {
+                Locale locale = voice.getLocale();
+                if (locale == null || !"tr".equalsIgnoreCase(locale.getLanguage())) continue;
+                int score = voice.getQuality() * 10 - voice.getLatency();
+                String name = voice.getName().toLowerCase(Locale.ROOT);
+                if (name.contains("female") || name.contains("kadın") || name.contains("woman")) score += 5000;
+                if (!voice.isNetworkConnectionRequired()) score += 250;
+                if (best == null || score > bestScore) {
+                    best = voice;
+                    bestScore = score;
+                }
+            }
+            if (best != null) tts.setVoice(best);
+        } catch (Exception ignored) {
+            // Some vendor TTS engines expose incomplete voice metadata; language fallback still works.
         }
     }
 
