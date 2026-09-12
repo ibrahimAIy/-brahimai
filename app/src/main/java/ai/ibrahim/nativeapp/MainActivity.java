@@ -39,7 +39,10 @@ public final class MainActivity extends Activity {
     private ValueCallback<Uri[]> pendingFileChooser;
 
     private final SharedPreferences.OnSharedPreferenceChangeListener listener =
-            (preferences, key) -> runOnUiThread(this::refreshNativeStatus);
+            (preferences, key) -> {
+                if ("native_status".equals(key)) return;
+                runOnUiThread(this::refreshNativeStatus);
+            };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,7 +59,9 @@ public final class MainActivity extends Activity {
         if (getIntent() != null && getIntent().getBooleanExtra("restart_wake_word", false)) {
             Toast.makeText(this, "7/24 ses motorunu yeniden başlatmak için NOXARA içindeki Android ayarlarını açabilirsin.", Toast.LENGTH_LONG).show();
         }
+        handlePairingIntent(getIntent());
         refreshNativeStatus();
+        pairingHandler.postDelayed(this::checkPendingPairing, 400L);
     }
 
     private void buildCleanAppShell() {
@@ -76,7 +81,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/22.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/23.0");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
         WebView.setWebContentsDebuggingEnabled(false);
 
@@ -158,23 +163,29 @@ public final class MainActivity extends Activity {
     public void startBrowserPairing() {
         SecretStore secrets = new SecretStore(this);
         if (secrets.has("device_token")) {
-            refreshNativeStatus();
+            openPairedWebApp();
             return;
         }
 
+        pairingHandler.removeCallbacksAndMessages(null);
         byte[] random = new byte[32];
         new SecureRandom().nextBytes(random);
         String pairSecret = Base64.encodeToString(random, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
-        getSharedPreferences("native_prefs", MODE_PRIVATE)
+        boolean saved = getSharedPreferences("native_prefs", MODE_PRIVATE)
                 .edit()
                 .putString("pending_pair_secret", pairSecret)
                 .putLong("pending_pair_started_at", System.currentTimeMillis())
-                .apply();
+                .commit();
+        if (!saved) {
+            Toast.makeText(this, "Eşleştirme anahtarı telefona kaydedilemedi. Tekrar dene.", Toast.LENGTH_LONG).show();
+            return;
+        }
 
         Uri pairingUrl = Uri.parse(APP_URL).buildUpon().appendQueryParameter("native_pair", pairSecret).build();
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, pairingUrl));
             Toast.makeText(this, "Google girişini tarayıcıda tamamla; NOXARA uygulaması otomatik eşleşecek.", Toast.LENGTH_LONG).show();
+            pairingHandler.postDelayed(this::checkPendingPairing, 800L);
         } catch (ActivityNotFoundException exception) {
             Toast.makeText(this, "Tarayıcı açılamadı.", Toast.LENGTH_LONG).show();
         }
@@ -204,6 +215,7 @@ public final class MainActivity extends Activity {
         if (pairSecret == null || pairSecret.isEmpty()) return;
         if (startedAt <= 0L || System.currentTimeMillis() - startedAt > PAIR_TTL_MS) {
             clearPendingPairing();
+            updateNativeStatus("Eşleştirme süresi doldu · yeniden bağlan");
             return;
         }
 
@@ -213,13 +225,22 @@ public final class MainActivity extends Activity {
             @Override
             public void onPaired(String token, String deviceId) {
                 pairingCheckInFlight = false;
-                SecretStore store = new SecretStore(MainActivity.this);
-                store.put("device_token", token);
-                store.put("device_id", deviceId);
-                clearPendingPairing();
-                Toast.makeText(MainActivity.this, "NOXARA hesabın bu telefonla eşleşti.", Toast.LENGTH_SHORT).show();
-                refreshNativeStatus();
-                if (webView != null) webView.reload();
+                try {
+                    SecretStore store = new SecretStore(MainActivity.this);
+                    store.put("device_token", token);
+                    store.put("device_id", deviceId);
+                    if (!token.equals(store.get("device_token")) || !deviceId.equals(store.get("device_id"))) {
+                        throw new IllegalStateException("Pair token verification failed");
+                    }
+                    apiClient.acknowledgePairing(pairSecret);
+                    clearPendingPairing();
+                    Toast.makeText(MainActivity.this, "NOXARA hesabın bu telefonla eşleşti.", Toast.LENGTH_SHORT).show();
+                    refreshNativeStatus();
+                    openPairedWebApp();
+                } catch (Exception exception) {
+                    updateNativeStatus("Hesap bağlandı ama cihaz anahtarı kaydedilemedi · yeniden deneniyor");
+                    pairingHandler.postDelayed(MainActivity.this::checkPendingPairing, 1800L);
+                }
             }
 
             @Override
@@ -232,10 +253,27 @@ public final class MainActivity extends Activity {
             @Override
             public void onError(String message) {
                 pairingCheckInFlight = false;
-                if (message != null && message.contains("süresi doldu")) clearPendingPairing();
-                updateNativeStatus(message == null ? "Eşleştirme kontrol edilemedi." : message);
+                if (message != null && message.contains("süresi doldu")) {
+                    clearPendingPairing();
+                    updateNativeStatus(message);
+                    return;
+                }
+                updateNativeStatus(message == null ? "Eşleştirme kontrol edilemedi · yeniden deneniyor" : message + " · yeniden deneniyor");
+                pairingHandler.postDelayed(MainActivity.this::checkPendingPairing, 2200L);
             }
         });
+    }
+
+    private void openPairedWebApp() {
+        if (webView == null) return;
+        webView.post(() -> webView.loadUrl(APP_URL + "?native_connected=1&native_v=23"));
+    }
+
+    private void handlePairingIntent(Intent intent) {
+        Uri data = intent != null ? intent.getData() : null;
+        if (data != null && "noxara".equals(data.getScheme()) && "paired".equals(data.getHost())) {
+            pairingHandler.postDelayed(this::checkPendingPairing, 200L);
+        }
     }
 
     private void clearPendingPairing() {
@@ -243,7 +281,7 @@ public final class MainActivity extends Activity {
                 .edit()
                 .remove("pending_pair_secret")
                 .remove("pending_pair_started_at")
-                .apply();
+                .commit();
     }
 
     public void updateNativeStatus(String text) {
@@ -275,10 +313,7 @@ public final class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        Uri data = intent != null ? intent.getData() : null;
-        if (data != null && "noxara".equals(data.getScheme()) && "paired".equals(data.getHost())) {
-            pairingHandler.postDelayed(this::checkPendingPairing, 250L);
-        }
+        handlePairingIntent(intent);
     }
 
     @Override

@@ -22,6 +22,7 @@ public final class NativeApiClient {
     private static final String BASE_URL = "https://ibrahim-ai-y1xmj0.v2.appdeploy.ai";
     private static final String COMMAND_URL = BASE_URL + "/api/native/command";
     private static final String PAIR_RESULT_URL = BASE_URL + "/api/native/pair/result";
+    private static final String PAIR_ACK_URL = BASE_URL + "/api/native/pair/ack";
     private static final String OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
     private static final String DIRECT_MODEL = "gpt-5.6-luna";
 
@@ -90,6 +91,32 @@ public final class NativeApiClient {
         });
     }
 
+    public void acknowledgePairing(String pairSecret) {
+        if (pairSecret == null || pairSecret.isEmpty()) return;
+        executor.execute(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(PAIR_ACK_URL).openConnection();
+                connection.setConnectTimeout(12000);
+                connection.setReadTimeout(15000);
+                connection.setRequestMethod("POST");
+                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                connection.setRequestProperty("Accept", "application/json");
+                connection.setDoOutput(true);
+                JSONObject payload = new JSONObject();
+                payload.put("pairSecret", pairSecret);
+                writeJson(connection, payload);
+                connection.getResponseCode();
+                InputStream stream = connection.getErrorStream();
+                if (stream != null) readAll(stream);
+            } catch (Exception ignored) {
+                // Pair records expire automatically. A failed acknowledgement must not undo a successful local pairing.
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        });
+    }
+
     public void sendCommand(String command, Callback callback) {
         final String token = secrets.get("device_token");
         if (!token.isEmpty()) {
@@ -138,10 +165,10 @@ public final class NativeApiClient {
                         main.post(() -> callback.onError("Native eşleşme geçersiz. Geliştirici Ajanı içinden doğrudan AI motorunu bağlayabilirsin."));
                     }
                 } else {
-                    main.post(() -> callback.onError("İbrahim AI sunucusu şu anda yanıt veremedi. Kod: " + code));
+                    main.post(() -> callback.onError("NOXARA sunucusu şu anda yanıt veremedi. Kod: " + code));
                 }
             } catch (Exception exception) {
-                main.post(() -> callback.onError("İbrahim AI bağlantısı kurulamadı. İnterneti kontrol et."));
+                main.post(() -> callback.onError("NOXARA bağlantısı kurulamadı. İnterneti kontrol et."));
             } finally {
                 if (connection != null) connection.disconnect();
             }

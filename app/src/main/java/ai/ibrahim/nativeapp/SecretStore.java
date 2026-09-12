@@ -38,7 +38,8 @@ public final class SecretStore {
             combined[0] = (byte) iv.length;
             System.arraycopy(iv, 0, combined, 1, iv.length);
             System.arraycopy(encrypted, 0, combined, 1 + iv.length, encrypted.length);
-            preferences.edit().putString(name, Base64.encodeToString(combined, Base64.NO_WRAP)).apply();
+            boolean committed = preferences.edit().putString(name, Base64.encodeToString(combined, Base64.NO_WRAP)).commit();
+            if (!committed) throw new IllegalStateException("Secret preferences commit failed");
         } catch (Exception exception) {
             throw new IllegalStateException("Secret could not be stored", exception);
         }
@@ -67,8 +68,8 @@ public final class SecretStore {
         return !get(name).isEmpty();
     }
 
-    public void remove(String name) {
-        preferences.edit().remove(name).apply();
+    public synchronized void remove(String name) {
+        preferences.edit().remove(name).commit();
     }
 
     private SecretKey getOrCreateKey() throws Exception {
