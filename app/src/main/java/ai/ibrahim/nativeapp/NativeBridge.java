@@ -72,6 +72,11 @@ public final class NativeBridge {
         return activity.getSharedPreferences("native_prefs", Context.MODE_PRIVATE).getBoolean("conversation_mode", false);
     }
 
+    @JavascriptInterface
+    public void openVoiceRoom() {
+        activity.runOnUiThread(() -> activity.startActivity(new Intent(activity, VoiceActivity.class)));
+    }
+
     private void sendWakeServiceAction(String action) {
         Intent intent = new Intent(activity, WakeWordService.class);
         intent.setAction(action);
