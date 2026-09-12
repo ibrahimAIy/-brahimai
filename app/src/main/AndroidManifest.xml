@@ -34,7 +34,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="ibrahimai" android:host="paired" />
+                <data android:scheme="noxara" android:host="paired" />
             </intent-filter>
         </activity>
 

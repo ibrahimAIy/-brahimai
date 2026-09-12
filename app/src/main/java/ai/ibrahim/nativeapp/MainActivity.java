@@ -76,7 +76,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/21.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " NOXARANative/22.0");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
         WebView.setWebContentsDebuggingEnabled(false);
 
@@ -276,7 +276,7 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         Uri data = intent != null ? intent.getData() : null;
-        if (data != null && "ibrahimai".equals(data.getScheme()) && "paired".equals(data.getHost())) {
+        if (data != null && "noxara".equals(data.getScheme()) && "paired".equals(data.getHost())) {
             pairingHandler.postDelayed(this::checkPendingPairing, 250L);
         }
     }
