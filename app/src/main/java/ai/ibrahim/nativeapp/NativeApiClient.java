@@ -152,6 +152,9 @@ public final class NativeApiClient {
                 JSONObject payload = new JSONObject();
                 payload.put("text", command);
                 payload.put("timeZone", TimeZone.getDefault().getID());
+                payload.put("responseMode", "voice");
+                payload.put("language", "tr-TR");
+                payload.put("verbosity", "short");
                 writeJson(connection, payload);
                 int code = connection.getResponseCode();
                 InputStream stream = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
@@ -196,7 +199,7 @@ public final class NativeApiClient {
                 JSONObject payload = new JSONObject();
                 payload.put("model", DIRECT_MODEL);
                 payload.put("input", directGroundedInput(command));
-                payload.put("max_output_tokens", 6000);
+                payload.put("max_output_tokens", 900);
                 writeJson(connection, payload);
 
                 int code = connection.getResponseCode();
@@ -233,6 +236,7 @@ public final class NativeApiClient {
         String localNow = formatter.format(new Date());
         return "AUTHORITATIVE DEVICE CLOCK: " + localNow + " | timezone=" + zone.getID()
                 + "\nUse this clock as ground truth for now/today/this week/this month/this year. Never default to an old training year."
+                + "\nYou are NOXARA in a live voice conversation. Reply in natural, fluent Turkish. Lead with the answer, use short spoken sentences, avoid markdown, links, tables and unnecessary detail. Ask at most one brief follow-up only when essential."
                 + "\n\nUser: " + command;
     }
 
