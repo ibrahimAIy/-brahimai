@@ -7,11 +7,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.ibrahimai.agentfresh'
+        applicationId 'app.noxara.privateai'
         minSdk 26
         targetSdk 35
-        versionCode 21
-        versionName '21.0-clean-app-shell'
+        versionCode 22
+        versionName '22.0-clean-package'
     }
 
     compileOptions {
