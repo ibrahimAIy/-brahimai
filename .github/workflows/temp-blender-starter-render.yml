@@ -1,0 +1,59 @@
+name: Temporary Blender Starter Render
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'tools/blender/**'
+      - '.github/workflows/temp-blender-starter-render.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout render branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Install Blender tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y blender libegl1 libgl1-mesa-dri libglx-mesa0 mesa-utils xvfb imagemagick webp
+
+      - name: Render starter sloop
+        run: |
+          mkdir -p render/frames
+          xvfb-run -a blender -b --python tools/blender/render_starter_ship.py
+
+      - name: Build sprite sheet
+        run: |
+          montage render/frames/starter_*.png -tile 8x4 -geometry +0+0 -background none render/starter-sloop-32.png
+          cwebp -quiet -q 92 -alpha_q 100 -m 6 render/starter-sloop-32.png -o render/starter-sloop-32.webp
+          cp render/frames/starter_28.png render/starter-sloop-preview.png
+
+      - name: Publish generated Blender assets on render branch
+        run: |
+          mkdir -p generated
+          cp render/starter-sloop-32.webp generated/starter-sloop-32.webp
+          cp render/starter-sloop-preview.png generated/starter-sloop-preview.png
+          git config user.name "Açık Deniz Blender Renderer"
+          git config user.email "actions@users.noreply.github.com"
+          git add generated/starter-sloop-32.webp generated/starter-sloop-preview.png
+          git diff --cached --quiet || git commit -m "Publish Blender starter sloop assets"
+          git push origin HEAD:${{ github.head_ref }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-starter-sloop
+          if-no-files-found: error
+          path: |
+            render/starter_sloop.blend
+            render/starter-sloop-32.webp
+            render/starter-sloop-preview.png
