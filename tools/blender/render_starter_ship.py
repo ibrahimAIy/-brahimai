@@ -285,7 +285,7 @@ if bg:
     bg.inputs['Strength'].default_value = 0.35
 
 # ---------------- Camera ----------------
-bpy.ops.object.camera_add(location=(9.6,-13.0,10.2))
+bpy.ops.object.camera_add(location=(0.0,-14.0,10.5))
 cam = bpy.context.object
 cam.data.type = 'ORTHO'
 cam.data.ortho_scale = 10.2
